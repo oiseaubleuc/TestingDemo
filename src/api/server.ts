@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import { RabbitMQProducer } from '../rabbitmq/producer';
 import { RabbitMQMessage, EventType, MessagePayload } from '../types/message';
@@ -6,6 +7,7 @@ import { config, validateConfig } from '../config';
 import logger from '../utils/logger';
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 const producer = new RabbitMQProducer();
