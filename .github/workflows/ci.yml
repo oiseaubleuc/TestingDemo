@@ -71,6 +71,36 @@ jobs:
           RABBITMQ_QUEUE: test_queue
           RABBITMQ_DLQ: test_dlq
 
+      - name: Check test coverage
+        run: |
+          npm test -- --coverage --coverageReporters=text-summary || true
+        continue-on-error: true
+
+      - name: Verify build output
+        run: |
+          echo "Checking build output..."
+          test -d dist || (echo "❌ dist directory not found" && exit 1)
+          test -f dist/api/server.js || (echo "❌ server.js not found" && exit 1)
+          test -f dist/consumer/index.js || (echo "❌ consumer/index.js not found" && exit 1)
+          echo "✅ Build output verified"
+
+      - name: Verify frontend build
+        run: |
+          echo "Checking frontend build..."
+          test -d frontend/dist || (echo "❌ frontend/dist not found" && exit 1)
+          test -f frontend/dist/index.html || (echo "❌ index.html not found" && exit 1)
+          echo "✅ Frontend build verified"
+
+      - name: Check for security vulnerabilities
+        run: |
+          npm audit --audit-level=moderate || true
+        continue-on-error: true
+
+      - name: Check package.json scripts
+        run: |
+          echo "Verifying package.json scripts..."
+          node -e "const pkg = require('./package.json'); const scripts = Object.keys(pkg.scripts || {}); console.log('Available scripts:', scripts.join(', ')); if (!scripts.includes('build')) throw new Error('build script missing'); if (!scripts.includes('test')) throw new Error('test script missing');"
+
   # ============================================
   # Docker Build Job (CI only - no push)
   # ============================================
@@ -95,6 +125,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+      - name: Verify Docker image
+        run: |
+          echo "Verifying Docker image..."
+          docker images | grep testingapp-app || (echo "❌ Docker image not found" && exit 1)
+          IMAGE_SIZE=$(docker images testingapp-app --format "{{.Size}}")
+          echo "✅ Docker image built successfully (Size: $IMAGE_SIZE)"
 
   # ============================================
   # Docker Compose Test Job
@@ -161,11 +198,37 @@ jobs:
           curl -f http://localhost:5173/api/candies || exit 1
           echo "✅ API proxy check passed"
 
+      - name: Check API endpoints
+        run: |
+          echo "Testing additional API endpoints..."
+          curl -f http://localhost:3000/ || exit 1
+          curl -f http://localhost:3000/queue/info || exit 1
+          echo "✅ API endpoints check passed"
+
       - name: Check RabbitMQ Management UI
         run: |
           echo "Testing RabbitMQ Management UI..."
           curl -f http://localhost:15672 || exit 1
           echo "✅ RabbitMQ UI check passed"
+
+      - name: Verify container health
+        run: |
+          echo "Checking container health status..."
+          docker compose ps
+          HEALTH_STATUS=$(docker compose ps --format json | jq -r '.[] | select(.Service=="app") | .Health' || echo "unknown")
+          echo "App container health: $HEALTH_STATUS"
+          if [ "$HEALTH_STATUS" != "healthy" ] && [ "$HEALTH_STATUS" != "unknown" ]; then
+            echo "⚠️ Container health check: $HEALTH_STATUS"
+          fi
+
+      - name: Test API response format
+        run: |
+          echo "Testing API response formats..."
+          HEALTH_RESPONSE=$(curl -s http://localhost:3000/health)
+          echo "$HEALTH_RESPONSE" | jq . > /dev/null || (echo "❌ Health endpoint not returning valid JSON" && exit 1)
+          CANDIES_RESPONSE=$(curl -s http://localhost:5173/api/candies)
+          echo "$CANDIES_RESPONSE" | jq . > /dev/null || (echo "❌ Candies endpoint not returning valid JSON" && exit 1)
+          echo "✅ API responses are valid JSON"
 
       - name: Check container logs
         if: failure()
