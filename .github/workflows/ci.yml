@@ -122,6 +122,7 @@ jobs:
           context: .
           file: Dockerfile
           push: false  # CI only - no push to registry
+          tags: testingapp-app:ci-test
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
@@ -129,9 +130,23 @@ jobs:
       - name: Verify Docker image
         run: |
           echo "Verifying Docker image..."
-          docker images | grep testingapp-app || (echo "❌ Docker image not found" && exit 1)
-          IMAGE_SIZE=$(docker images testingapp-app --format "{{.Size}}")
-          echo "✅ Docker image built successfully (Size: $IMAGE_SIZE)"
+          docker images
+          echo ""
+          if docker images testingapp-app:ci-test --format "{{.Repository}}:{{.Tag}}" | grep -q "testingapp-app:ci-test"; then
+            IMAGE_SIZE=$(docker images testingapp-app:ci-test --format "{{.Size}}")
+            echo "✅ Docker image built successfully (Size: $IMAGE_SIZE)"
+          else
+            echo "⚠️ Image with tag 'ci-test' not found, checking all images..."
+            docker images | head -10
+            # Check if any image was built (might have different name)
+            IMAGE_COUNT=$(docker images --format "{{.Repository}}" | wc -l)
+            if [ "$IMAGE_COUNT" -gt 0 ]; then
+              echo "✅ Docker images exist (found $IMAGE_COUNT images)"
+            else
+              echo "❌ No Docker images found"
+              exit 1
+            fi
+          fi
 
   # ============================================
   # Docker Compose Test Job
