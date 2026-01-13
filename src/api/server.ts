@@ -351,9 +351,10 @@ process.on('SIGINT', async () => {
 
 validateConfig();
 const PORT = config.api.port;
-app.listen(PORT, () => {
+// Listen on 0.0.0.0 to accept connections from outside container
+app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Producer API server running on port ${PORT}`);
-  console.log(`\nProducer API Server running on http://localhost:${PORT}`);
+  console.log(`\nProducer API Server running on http://0.0.0.0:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Queue info: http://localhost:${PORT}/queue/info`);
   console.log(`Send message: POST http://localhost:${PORT}/api/messages\n`);

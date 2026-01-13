@@ -1,22 +1,15 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from './api/client';
-import type { Candy } from './api/client';
 import './App.css';
-
-type BasketItem = {
-  candyId: string;
-  candy: Candy;
-  quantity: number; // aantal keer 100g
-};
 
 function App() {
   const [loading, setLoading] = useState(false);
   const [loadingCandies, setLoadingCandies] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [candies, setCandies] = useState<Candy[]>([]);
-  const [basket, setBasket] = useState<BasketItem[]>([]);
+  const [message, setMessage] = useState(null);
+  const [candies, setCandies] = useState([]);
+  const [basket, setBasket] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
@@ -36,22 +29,22 @@ function App() {
       setLoadingCandies(true);
       const response = await apiClient.getCandies();
       setCandies(response.candies);
-    } catch (error: any) {
+    } catch (error) {
       showMessage('error', error.message || 'Failed to load candies');
     } finally {
       setLoadingCandies(false);
     }
   };
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
+  const showMessage = (type, text) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
   };
 
-  const addToBasket = (candy: Candy) => {
-    const existingItem = basket.find((item: BasketItem) => item.candyId === candy.id);
+  const addToBasket = (candy) => {
+    const existingItem = basket.find((item) => item.candyId === candy.id);
     if (existingItem) {
-      setBasket(basket.map((item: BasketItem) =>
+      setBasket(basket.map((item) =>
         item.candyId === candy.id
           ? { ...item, quantity: item.quantity + 1 }
           : item
@@ -62,31 +55,31 @@ function App() {
     showMessage('success', `${candy.name} toegevoegd aan mandje!`);
   };
 
-  const updateBasketQuantity = (candyId: string, quantity: number) => {
+  const updateBasketQuantity = (candyId, quantity) => {
     if (quantity <= 0) {
       removeFromBasket(candyId);
       return;
     }
-    setBasket(basket.map((item: BasketItem) =>
+    setBasket(basket.map((item) =>
       item.candyId === candyId ? { ...item, quantity } : item
     ));
   };
 
-  const removeFromBasket = (candyId: string) => {
-    setBasket(basket.filter((item: BasketItem) => item.candyId !== candyId));
+  const removeFromBasket = (candyId) => {
+    setBasket(basket.filter((item) => item.candyId !== candyId));
   };
 
   const getTotalPrice = () => {
-    return basket.reduce((total: number, item: BasketItem) => {
+    return basket.reduce((total, item) => {
       return total + (item.candy.pricePer100g * item.quantity);
     }, 0);
   };
 
   const getTotalWeight = () => {
-    return basket.reduce((total: number, item: BasketItem) => total + item.quantity, 0) * 100;
+    return basket.reduce((total, item) => total + item.quantity, 0) * 100;
   };
 
-  const handleCheckout = async (e: React.FormEvent) => {
+  const handleCheckout = async (e) => {
     e.preventDefault();
     
     if (basket.length === 0) {
@@ -123,7 +116,7 @@ function App() {
         city: '',
         postalCode: '',
       });
-    } catch (error: any) {
+    } catch (error) {
       showMessage('error', error.message || 'Failed to place order');
     } finally {
       setLoading(false);
@@ -249,8 +242,8 @@ function App() {
             <div className="candies-grid">
               {filteredCandies.map(candy => {
                 // Emoji fallback voor verschillende snoepjes categorieën
-                const getCandyEmoji = (category: string) => {
-                  const emojiMap: { [key: string]: string } = {
+                const getCandyEmoji = (category) => {
+                  const emojiMap = {
                     'Zuur': '🍋',
                     'Zacht': '🍬',
                     'Drop': '🖤',
@@ -275,9 +268,9 @@ function App() {
                           className="candy-image"
                           onError={(e) => {
                             // Fallback naar emoji als image niet laadt
-                            const target = e.target as HTMLImageElement;
+                            const target = e.target;
                             target.style.display = 'none';
-                            const emojiDiv = target.nextElementSibling as HTMLElement;
+                            const emojiDiv = target.nextElementSibling;
                             if (emojiDiv) emojiDiv.style.display = 'flex';
                           }}
                         />

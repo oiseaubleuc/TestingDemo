@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # RabbitMQ Service
+  # ============================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq-salesforce
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ============================================
+  # Application Service (All-in-One)
+  # ============================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: app-all-in-one
+    ports:
+      - "${API_PORT:-3000}:3000"  # Backend API
+      - "${FRONTEND_PORT:-5173}:80"  # Frontend (via Nginx)
+    environment:
+      # RabbitMQ config
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://rabbitmq:5672/}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-orders_queue}
+      RABBITMQ_DLQ: ${RABBITMQ_DLQ:-orders_dlq}
+      # Salesforce config
+      SALESFORCE_INSTANCE_URL: ${SALESFORCE_INSTANCE_URL}
+      SALESFORCE_CLIENT_ID: ${SALESFORCE_CLIENT_ID}
+      SALESFORCE_CLIENT_SECRET: ${SALESFORCE_CLIENT_SECRET}
+      SALESFORCE_REFRESH_TOKEN: ${SALESFORCE_REFRESH_TOKEN}
+      SALESFORCE_API_VERSION: ${SALESFORCE_API_VERSION:-v60.0}
+      # Legacy username/password (optioneel)
+      SALESFORCE_USERNAME: ${SALESFORCE_USERNAME:-}
+      SALESFORCE_PASSWORD: ${SALESFORCE_PASSWORD:-}
+      SALESFORCE_SECURITY_TOKEN: ${SALESFORCE_SECURITY_TOKEN:-}
+      # API config
+      API_PORT: 3000
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/logs
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:3000/health && curl -f http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  app-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  rabbitmq_data:
+    driver: local
