@@ -1,6 +1,4 @@
 import { RabbitMQConsumer } from '../rabbitmq/consumer';
-import { SalesforceAuthService } from '../services/salesforce-auth';
-import { SalesforceClient } from '../services/salesforce-client';
 import { config, validateConfig } from '../config';
 import logger from '../utils/logger';
 
@@ -10,23 +8,9 @@ async function startConsumer() {
 
     logger.info('Starting Consumer Service...');
 
-    // Initialiseer Salesforce services
-    const salesforceAuthService = new SalesforceAuthService();
-    const salesforceClient = new SalesforceClient(salesforceAuthService);
-
-    // Test authenticatie bij opstarten
-    try {
-      await salesforceAuthService.haalAccessTokenOpAsync();
-      logger.info('Salesforce: Authenticatie succesvol getest');
-    } catch (error: any) {
-      logger.error('Salesforce: Authenticatie test mislukt', {
-        error: error.message,
-      });
-      throw error;
-    }
-
     // Initialiseer RabbitMQ consumer
-    const consumer = new RabbitMQConsumer(salesforceClient);
+    // Note: RabbitMQConsumer gebruikt intern SalesforceRefreshService
+    const consumer = new RabbitMQConsumer();
     await consumer.connect();
     await consumer.startConsuming();
 
