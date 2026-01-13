@@ -7,13 +7,10 @@
     "start:api": "ts-node --files ./src/api/server.ts",
     "start:consumer": "ts-node --files ./src/rabbitmq/start-consumer.ts",
     "start:frontend": "cd frontend && npm run dev",
-
     "build": "tsc",
     "build:frontend": "cd frontend && npm run build",
-
     "test": "jest",
     "lint": "eslint src/**/*.ts",
-
     "get-refresh-token": "ts-node --files ./scripts/get-refresh-token.ts",
     "backup:customers": "ts-node ./scripts/backup-customers.ts"
   },
@@ -37,6 +34,7 @@
   "devDependencies": {
     "@types/amqplib": "^0.10.4",
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.10.5",
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
