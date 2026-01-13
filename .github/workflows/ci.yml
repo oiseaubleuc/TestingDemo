@@ -126,16 +126,16 @@ jobs:
 
       - name: Build Docker Compose services
         run: |
-          docker-compose build --no-cache
+          docker compose build --no-cache
 
       - name: Start services
         run: |
-          docker-compose up -d
+          docker compose up -d
 
       - name: Wait for RabbitMQ to be healthy
         run: |
           echo "Waiting for RabbitMQ..."
-          timeout 30 bash -c 'until docker-compose ps | grep -q "rabbitmq.*healthy"; do sleep 2; done'
+          timeout 30 bash -c 'until docker compose ps | grep -q "rabbitmq.*healthy"; do sleep 2; done'
           echo "RabbitMQ is healthy"
 
       - name: Wait for app to start
@@ -171,11 +171,11 @@ jobs:
         if: failure()
         run: |
           echo "=== API Logs ==="
-          docker-compose logs app | tail -50
+          docker compose logs app | tail -50
           echo "=== Container Status ==="
-          docker-compose ps
+          docker compose ps
 
       - name: Stop services
         if: always()
         run: |
-          docker-compose down -v
+          docker compose down -v
