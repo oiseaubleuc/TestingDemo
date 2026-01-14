@@ -155,13 +155,19 @@ app.post('/api/customers', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * ✅ FIX: consumer verwacht `payload.customer` (voor upsert/link)
+ * Maar jullie MessagePayload type vereist dat customer minstens { id, name, email } bevat.
+ * Daarom vragen we in deze endpoint ook customerName + customerEmail (en optioneel phone).
+ */
 app.post('/api/orders', async (req: Request, res: Response) => {
   try {
-    const { id, customerId, amount, currency, items } = req.body;
+    const { id, customerId, amount, currency, items, customerName, customerEmail, customerPhone } =
+      req.body;
 
-    if (!id || !customerId || !amount || !items) {
+    if (!id || !customerId || !amount || !items || !customerName || !customerEmail) {
       return res.status(400).json({
-        error: 'Missing required fields: id, customerId, amount, items',
+        error: 'Missing required fields: id, customerId, amount, items, customerName, customerEmail',
       });
     }
 
@@ -169,6 +175,12 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       messageId: uuidv4(),
       event: EventType.CREATE_ORDER,
       payload: {
+        customer: {
+          id: customerId,
+          name: customerName,
+          email: customerEmail,
+          phone: customerPhone,
+        },
         order: {
           id,
           customerId,
@@ -259,7 +271,8 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
 
     // Genereer order ID
     const orderId = `ORD-${Date.now()}-${uuidv4().substring(0, 8)}`;
-    const customerId = customerInfo.customerId || `CUST-${Date.now()}-${uuidv4().substring(0, 8)}`;
+    const customerId =
+      customerInfo.customerId || `CUST-${Date.now()}-${uuidv4().substring(0, 8)}`;
 
     // Maak eerst customer aan als die nog niet bestaat
     if (!customerInfo.customerId) {
@@ -284,25 +297,26 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
       logger.info('API: Customer creation message sent', { customerId });
     }
 
-    // Maak order aan
+    // ✅ FIX: payload.customer toevoegen (consumer verwacht dit)
     const orderMessage: RabbitMQMessage = {
       messageId: uuidv4(),
       event: EventType.CREATE_ORDER,
       payload: {
+        customer: {
+          id: customerId,
+          name: customerInfo.name,
+          email: customerInfo.email,
+          phone: customerInfo.phone,
+          address: customerInfo.address,
+          city: customerInfo.city,
+          postalCode: customerInfo.postalCode,
+        },
         order: {
           id: orderId,
           customerId: customerId,
           amount: Math.round(totalAmount * 100) / 100, // Rond af op 2 decimalen
           currency: 'EUR',
           items: orderItems,
-          customerInfo: {
-            name: customerInfo.name,
-            email: customerInfo.email,
-            phone: customerInfo.phone,
-            address: customerInfo.address,
-            city: customerInfo.city,
-            postalCode: customerInfo.postalCode,
-          },
         },
       },
       timestamp: new Date().toISOString(),
