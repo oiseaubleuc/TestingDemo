@@ -29,6 +29,11 @@ export const config = {
     level: process.env.LOG_LEVEL || 'info',
     dir: process.env.LOG_DIR || './logs',
   },
+  security: {
+    apiKey: process.env.API_KEY || 'dev-api-key-change-in-production',
+    allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000').split(','),
+    enableRateLimiting: process.env.ENABLE_RATE_LIMITING !== 'false',
+  },
 };
 
 const requiredEnvVars = [

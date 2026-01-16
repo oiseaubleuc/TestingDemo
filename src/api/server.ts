@@ -6,10 +6,41 @@ import { RabbitMQMessage, EventType, MessagePayload } from '../types/message';
 import { config, validateConfig } from '../config';
 import logger from '../utils/logger';
 import { CANDIES, getCandyById } from '../data/candies';
+import {
+  helmetMiddleware,
+  corsOptions,
+  apiLimiter,
+  authLimiter,
+  orderLimiter,
+  validateApiKey,
+  sanitizeInput,
+  secureHeaders,
+  maskSensitiveData,
+} from '../middleware/security';
+import {
+  validateCustomerInfo,
+  validateBasket,
+  validateOrderPayload,
+} from '../middleware/validation';
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ============================================================
+// SECURITY MIDDLEWARE - Applied in order of importance
+// ============================================================
+app.use(helmetMiddleware); // Security headers
+app.use(secureHeaders); // Additional security headers
+app.use(cors(corsOptions)); // CORS with whitelist
+app.use(express.json({ limit: '10kb' })); // Limit payload size
+app.use(sanitizeInput); // Sanitize inputs
+
+// Rate limiting
+if (config.security.enableRateLimiting) {
+  app.use(apiLimiter); // Global rate limiter
+}
+
+// API Key validation (after rate limiter)
+app.use(validateApiKey);
 
 const producer = new RabbitMQProducer();
 
@@ -44,8 +75,9 @@ app.get('/queue/info', async (req: Request, res: Response) => {
     const queueInfo = await producer.getQueueInfo();
     res.json(queueInfo);
   } catch (error: any) {
-    logger.error('Failed to get queue info', { error: error.message });
-    res.status(500).json({ error: error.message });
+    logger.error('Failed to get queue info', { error: maskSensitiveData(error) });
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.status(500).json({ error: isProduction ? 'Failed to retrieve queue info' : error.message });
   }
 });
 
@@ -62,7 +94,7 @@ app.get('/api/candies', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/messages', async (req: Request, res: Response) => {
+app.post('/api/messages', validateOrderPayload, orderLimiter, authLimiter, async (req: Request, res: Response) => {
   try {
     const { event, payload } = req.body;
 
@@ -109,13 +141,14 @@ app.post('/api/messages', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/customers', async (req: Request, res: Response) => {
+app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
   try {
-    const { id, name, email, phone } = req.body;
+    const { name, email, phone } = req.body;
+    const id = uuidv4(); // Generate customer ID
 
-    if (!id || !name || !email) {
+    if (!name || !email) {
       return res.status(400).json({
-        error: 'Missing required fields: id, name, email',
+        error: 'Missing required fields: name, email',
       });
     }
 
@@ -149,9 +182,10 @@ app.post('/api/customers', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error('API: Failed to create customer message', {
-      error: error.message,
+      error: maskSensitiveData(error),
     });
-    res.status(500).json({ error: error.message });
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
   }
 });
 
@@ -160,7 +194,7 @@ app.post('/api/customers', async (req: Request, res: Response) => {
  * Maar jullie MessagePayload type vereist dat customer minstens { id, name, email } bevat.
  * Daarom vragen we in deze endpoint ook customerName + customerEmail (en optioneel phone).
  */
-app.post('/api/orders', async (req: Request, res: Response) => {
+app.post('/api/orders', orderLimiter, async (req: Request, res: Response) => {
   try {
     const { id, customerId, amount, currency, items, customerName, customerEmail, customerPhone } =
       req.body;
@@ -208,13 +242,14 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error('API: Failed to create order message', {
-      error: error.message,
+      error: maskSensitiveData(error),
     });
-    res.status(500).json({ error: error.message });
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
   }
 });
 
-app.post('/api/orders/candy', async (req: Request, res: Response) => {
+app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
   try {
     const { basket, customerInfo } = req.body;
 
@@ -345,9 +380,10 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error('API: Failed to create candy order', {
-      error: error.message,
+      error: maskSensitiveData(error),
     });
-    res.status(500).json({ error: error.message });
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
   }
 });
 
@@ -366,10 +402,25 @@ process.on('SIGINT', async () => {
 validateConfig();
 const PORT = config.api.port;
 // Listen on 0.0.0.0 to accept connections from outside container
+
+// Global error handler for uncaught errors
+app.use((err: any, req: Request, res: Response) => {
+  logger.error('Unhandled error', {
+    error: maskSensitiveData(err),
+    path: req.path,
+    method: req.method,
+  });
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.status(err.status || 500).json({
+    error: isProduction ? 'Internal server error' : err.message,
+  });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Producer API server running on port ${PORT}`);
+  logger.info('Security features enabled: CORS whitelist, Rate limiting, API key validation, Helmet headers');
   console.log(`\nProducer API Server running on http://0.0.0.0:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Queue info: http://localhost:${PORT}/queue/info`);
-  console.log(`Send message: POST http://localhost:${PORT}/api/messages\n`);
+  console.log(`Queue info: http://localhost:${PORT}/queue/info (requires API key)`);
+  console.log(`Send message: POST http://localhost:${PORT}/api/messages (requires API key)\n`);
 });

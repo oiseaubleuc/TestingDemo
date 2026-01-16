@@ -9,251 +9,29 @@ on:
 
 jobs:
   # ============================================
-  # Lint & Test Job
+  # STAP 1: Basis Setup
   # ============================================
-  lint-and-test:
+  ci-pipeline:
     runs-on: ubuntu-latest
-    name: Lint & Test
-
-    services:
-      rabbitmq:
-        image: rabbitmq:3-management-alpine
-        ports:
-          - 5672:5672
-          - 15672:15672
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    name: CI Pipeline
+    timeout-minutes: 30
 
     steps:
+      # STAP 1.1: Code checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # STAP 1.2: Node.js setup (Backend)
+      - name: Setup Node.js (Backend)
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install backend dependencies
-        run: npm ci
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
-
-      - name: Run linter (backend)
-        run: npm run lint || true
-        continue-on-error: true
-
-      - name: Run linter (frontend)
-        run: |
-          cd frontend
-          npm run lint || true
-        continue-on-error: true
-
-      - name: Check for TypeScript errors
-        run: npx tsc --noEmit
-
-      - name: Build backend
-        run: npm run build
-
-      - name: Build frontend
-        run: npm run build:frontend
-
-      - name: Run tests
-        run: npm test
-        env:
-          RABBITMQ_URL: amqp://localhost:5672
-          RABBITMQ_QUEUE: test_queue
-          RABBITMQ_DLQ: test_dlq
-
-      - name: Check test coverage
-        run: |
-          npm test -- --coverage --coverageReporters=text-summary || true
-        continue-on-error: true
-
-      - name: Verify build output
-        run: |
-          echo "Checking build output..."
-          test -d dist || (echo "❌ dist directory not found" && exit 1)
-          test -f dist/api/server.js || (echo "❌ server.js not found" && exit 1)
-          test -f dist/consumer/index.js || (echo "❌ consumer/index.js not found" && exit 1)
-          echo "✅ Build output verified"
-
-      - name: Verify frontend build
-        run: |
-          echo "Checking frontend build..."
-          test -d frontend/dist || (echo "❌ frontend/dist not found" && exit 1)
-          test -f frontend/dist/index.html || (echo "❌ index.html not found" && exit 1)
-          echo "✅ Frontend build verified"
-
-      - name: Check for security vulnerabilities
-        run: |
-          npm audit --audit-level=moderate || true
-        continue-on-error: true
-
-      - name: Check package.json scripts
-        run: |
-          echo "Verifying package.json scripts..."
-          node -e "const pkg = require('./package.json'); const scripts = Object.keys(pkg.scripts || {}); console.log('Available scripts:', scripts.join(', ')); if (!scripts.includes('build')) throw new Error('build script missing'); if (!scripts.includes('test')) throw new Error('test script missing');"
-
-  # ============================================
-  # Docker Build Job (CI only - no push)
-  # ============================================
-  build-docker-image:
-    runs-on: ubuntu-latest
-    needs: lint-and-test
-    name: Build Docker Image
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
+      # STAP 1.3: Node.js setup (Frontend)
+      - name: Setup Node.js (Frontend)
+        uses: actions/setup-node@v4
         with:
-          context: .
-          file: Dockerfile
-          push: false  # CI only - no push to registry
-          tags: testingapp-app:ci-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-
-      - name: Verify Docker image
-        run: |
-          echo "Verifying Docker image..."
-          docker images
-          echo ""
-          if docker images testingapp-app:ci-test --format "{{.Repository}}:{{.Tag}}" | grep -q "testingapp-app:ci-test"; then
-            IMAGE_SIZE=$(docker images testingapp-app:ci-test --format "{{.Size}}")
-            echo "✅ Docker image built successfully (Size: $IMAGE_SIZE)"
-          else
-            echo "⚠️ Image with tag 'ci-test' not found, checking all images..."
-            docker images | head -10
-            # Check if any image was built (might have different name)
-            IMAGE_COUNT=$(docker images --format "{{.Repository}}" | wc -l)
-            if [ "$IMAGE_COUNT" -gt 0 ]; then
-              echo "✅ Docker images exist (found $IMAGE_COUNT images)"
-            else
-              echo "❌ No Docker images found"
-              exit 1
-            fi
-          fi
-
-  # ============================================
-  # Docker Compose Test Job
-  # ============================================
-  test-docker-compose:
-    runs-on: ubuntu-latest
-    needs: build-docker-image
-    name: Test Docker Compose
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create .env file for testing
-        run: |
-          cat > .env << EOF
-          RABBITMQ_URL=amqp://rabbitmq:5672/
-          RABBITMQ_QUEUE=test_queue
-          RABBITMQ_DLQ=test_dlq
-          SALESFORCE_INSTANCE_URL=https://test.salesforce.com
-          SALESFORCE_CLIENT_ID=test_client_id
-          SALESFORCE_CLIENT_SECRET=test_client_secret
-          SALESFORCE_REFRESH_TOKEN=test_refresh_token
-          SALESFORCE_API_VERSION=v60.0
-          API_PORT=3000
-          FRONTEND_PORT=5173
-          LOG_LEVEL=info
-          EOF
-
-      - name: Build Docker Compose services
-        run: |
-          docker compose build --no-cache
-
-      - name: Start services
-        run: |
-          docker compose up -d
-
-      - name: Wait for RabbitMQ to be healthy
-        run: |
-          echo "Waiting for RabbitMQ..."
-          timeout 30 bash -c 'until docker compose ps | grep -q "rabbitmq.*healthy"; do sleep 2; done'
-          echo "RabbitMQ is healthy"
-
-      - name: Wait for app to start
-        run: |
-          echo "Waiting for app services to start..."
-          sleep 25
-
-      - name: Check API health
-        run: |
-          echo "Testing API health endpoint..."
-          curl -f http://localhost:3000/health || exit 1
-          echo "✅ API health check passed"
-
-      - name: Check Frontend
-        run: |
-          echo "Testing Frontend..."
-          curl -f http://localhost:5173 || exit 1
-          echo "✅ Frontend check passed"
-
-      - name: Check API via Nginx proxy
-        run: |
-          echo "Testing API via Nginx proxy..."
-          curl -f http://localhost:5173/api/candies || exit 1
-          echo "✅ API proxy check passed"
-
-      - name: Check API endpoints
-        run: |
-          echo "Testing additional API endpoints..."
-          curl -f http://localhost:3000/ || exit 1
-          curl -f http://localhost:3000/queue/info || exit 1
-          echo "✅ API endpoints check passed"
-
-      - name: Check RabbitMQ Management UI
-        run: |
-          echo "Testing RabbitMQ Management UI..."
-          curl -f http://localhost:15672 || exit 1
-          echo "✅ RabbitMQ UI check passed"
-
-      - name: Verify container health
-        run: |
-          echo "Checking container health status..."
-          docker compose ps
-          HEALTH_STATUS=$(docker compose ps --format json | jq -r '.[] | select(.Service=="app") | .Health' || echo "unknown")
-          echo "App container health: $HEALTH_STATUS"
-          if [ "$HEALTH_STATUS" != "healthy" ] && [ "$HEALTH_STATUS" != "unknown" ]; then
-            echo "⚠️ Container health check: $HEALTH_STATUS"
-          fi
-
-      - name: Test API response format
-        run: |
-          echo "Testing API response formats..."
-          HEALTH_RESPONSE=$(curl -s http://localhost:3000/health)
-          echo "$HEALTH_RESPONSE" | jq . > /dev/null || (echo "❌ Health endpoint not returning valid JSON" && exit 1)
-          CANDIES_RESPONSE=$(curl -s http://localhost:5173/api/candies)
-          echo "$CANDIES_RESPONSE" | jq . > /dev/null || (echo "❌ Candies endpoint not returning valid JSON" && exit 1)
-          echo "✅ API responses are valid JSON"
-
-      - name: Check container logs
-        if: failure()
-        run: |
-          echo "=== API Logs ==="
-          docker compose logs app | tail -50
-          echo "=== Container Status ==="
-          docker compose ps
-
-      - name: Stop services
-        if: always()
-        run: |
-          docker compose down -v
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json

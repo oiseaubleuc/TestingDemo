@@ -2,11 +2,26 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 class ApiClient {
   async getCandies() {
-    const response = await fetch(`${API_BASE_URL}/api/candies`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch candies');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/candies`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Failed to load candies';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+      return response.json();
+    } catch (error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Cannot connect to server. Please check if the API is running.');
+      }
+      throw error;
     }
-    return response.json();
   }
 
   async createCandyOrder(order) {

@@ -28,9 +28,15 @@ function App() {
     try {
       setLoadingCandies(true);
       const response = await apiClient.getCandies();
-      setCandies(response.candies);
+      if (response && response.candies) {
+        setCandies(response.candies);
+      } else {
+        throw new Error('Invalid response from server');
+      }
     } catch (error) {
-      showMessage('error', error.message || 'Failed to load candies');
+      const errorMessage = error.message || 'Failed to load candies';
+      showMessage('error', errorMessage);
+      console.error('Error loading candies:', error);
     } finally {
       setLoadingCandies(false);
     }
