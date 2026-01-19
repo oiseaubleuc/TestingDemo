@@ -1,10 +1,6 @@
 /// <reference types="node" />
-/* Minimal Node shims to avoid missing @types/node */
-declare const process: { cwd(): string };
-declare function require(name: string): any;
-
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 import logger from '../utils/logger';
 
 export interface Customer {
