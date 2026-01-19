@@ -32,21 +32,18 @@ import {
 
 const app = express();
 
-// ============================================================
-// SECURITY MIDDLEWARE - Applied in order of importance
-// ============================================================
-app.use(helmetMiddleware); // Security headers
-app.use(secureHeaders); // Additional security headers
-app.use(cors(corsOptions)); // CORS with whitelist
-app.use(express.json({ limit: '10kb' })); // Limit payload size
-app.use(sanitizeInput); // Sanitize inputs
+app.use(helmetMiddleware); 
+app.use(secureHeaders); 
+app.use(cors(corsOptions)); 
+app.use(express.json({ limit: '10kb' })); 
+app.use(sanitizeInput); 
 
-// Rate limiting
+
 if (config.security.enableRateLimiting) {
-  app.use(apiLimiter); // Global rate limiter
+  app.use(apiLimiter); 
 }
 
-// API Key validation (after rate limiter)
+
 app.use(validateApiKey);
 
 const producer = new RabbitMQProducer();
@@ -105,7 +102,7 @@ app.get('/api/candies', (req: Request, res: Response) => {
   }
 });
 
-// GET all customers
+
 app.get('/api/customers', orderLimiter, async (req: Request, res: Response) => {
   try {
     const customers = getAllCustomers();
@@ -121,7 +118,7 @@ app.get('/api/customers', orderLimiter, async (req: Request, res: Response) => {
   }
 });
 
-// GET customer by ID
+
 app.get('/api/customers/:id', orderLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -202,7 +199,7 @@ app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Reque
       });
     }
 
-    // Save customer to local database
+    
     const customer = createCustomer({
       id,
       name,
@@ -213,7 +210,7 @@ app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Reque
       postalCode,
     });
 
-    // Also send message to RabbitMQ for Salesforce sync
+    
     const message: RabbitMQMessage = {
       messageId: uuidv4(),
       event: EventType.CREATE_CUSTOMER,
@@ -245,7 +242,7 @@ app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Reque
         data: customer,
       });
     } else {
-      // Customer is saved locally even if RabbitMQ fails
+      
       logger.warn('API: Customer created locally but RabbitMQ message failed', {
         customerId: customer.id,
       });
@@ -270,7 +267,7 @@ app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Reque
   }
 });
 
-// PUT update customer
+
 app.put('/api/customers/:id', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -291,7 +288,7 @@ app.put('/api/customers/:id', validateCustomerInfo, orderLimiter, async (req: Re
       });
     }
 
-    // Also send update message to RabbitMQ for Salesforce sync
+    
     const message: RabbitMQMessage = {
       messageId: uuidv4(),
       event: EventType.UPDATE_CUSTOMER,
@@ -323,7 +320,7 @@ app.put('/api/customers/:id', validateCustomerInfo, orderLimiter, async (req: Re
         data: updatedCustomer,
       });
     } else {
-      // Customer is updated locally even if RabbitMQ fails
+      
       logger.warn('API: Customer updated locally but RabbitMQ message failed', {
         customerId: id,
       });
@@ -348,7 +345,7 @@ app.put('/api/customers/:id', validateCustomerInfo, orderLimiter, async (req: Re
   }
 });
 
-// DELETE customer
+
 app.delete('/api/customers/:id', orderLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -374,11 +371,7 @@ app.delete('/api/customers/:id', orderLimiter, async (req: Request, res: Respons
   }
 });
 
-/**
- * ✅ FIX: consumer verwacht `payload.customer` (voor upsert/link)
- * Maar jullie MessagePayload type vereist dat customer minstens { id, name, email } bevat.
- * Daarom vragen we in deze endpoint ook customerName + customerEmail (en optioneel phone).
- */
+
 app.post('/api/orders', orderLimiter, async (req: Request, res: Response) => {
   try {
     const { id, customerId, amount, currency, items, customerName, customerEmail, customerPhone } =
@@ -450,7 +443,7 @@ app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Re
       });
     }
 
-    // Valideer en bereken order items
+    
     const orderItems: Array<{
       productId: string;
       productName: string;
@@ -476,25 +469,22 @@ app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Re
         });
       }
 
-      // Quantity is in 100g units
       const itemTotalPrice = candy.pricePer100g * quantity;
       totalAmount += itemTotalPrice;
 
       orderItems.push({
         productId: candy.id,
         productName: candy.name,
-        quantity: quantity, // aantal keer 100g
+        quantity: quantity,
         price: candy.pricePer100g,
         totalPrice: itemTotalPrice,
       });
     }
 
-    // Genereer order ID
     const orderId = `ORD-${Date.now()}-${uuidv4().substring(0, 8)}`;
     const customerId =
       customerInfo.customerId || `CUST-${Date.now()}-${uuidv4().substring(0, 8)}`;
 
-    // Maak eerst customer aan als die nog niet bestaat
     if (!customerInfo.customerId) {
       const customerMessage: RabbitMQMessage = {
         messageId: uuidv4(),
@@ -517,7 +507,7 @@ app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Re
       logger.info('API: Customer creation message sent', { customerId });
     }
 
-    // ✅ FIX: payload.customer toevoegen (consumer verwacht dit)
+    
     const orderMessage: RabbitMQMessage = {
       messageId: uuidv4(),
       event: EventType.CREATE_ORDER,
@@ -534,7 +524,7 @@ app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Re
         order: {
           id: orderId,
           customerId: customerId,
-          amount: Math.round(totalAmount * 100) / 100, // Rond af op 2 decimalen
+          amount: Math.round(totalAmount * 100) / 100, 
           currency: 'EUR',
           items: orderItems,
         },
@@ -586,9 +576,7 @@ process.on('SIGINT', async () => {
 
 validateConfig();
 const PORT = config.api.port;
-// Listen on 0.0.0.0 to accept connections from outside container
 
-// Global error handler for uncaught errors
 app.use((err: any, req: Request, res: Response) => {
   logger.error('Unhandled error', {
     error: maskSensitiveData(err),

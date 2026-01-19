@@ -1,4 +1,4 @@
-import * as amqp from 'amqplib';
+import amqp from 'amqplib';
 import { RabbitMQMessage } from '../types/message';
 import { config } from '../config';
 import logger from '../utils/logger';
