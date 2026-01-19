@@ -12,9 +12,16 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "types": ["jest", "node"]
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}
 
+    "types": ["node"],
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/__tests__",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}
