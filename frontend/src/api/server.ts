@@ -6,48 +6,10 @@ import { RabbitMQMessage, EventType, MessagePayload } from '../types/message';
 import { config, validateConfig } from '../config';
 import logger from '../utils/logger';
 import { CANDIES, getCandyById } from '../data/candies';
-import {
-  getAllCustomers,
-  getCustomerById,
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
-} from '../data/customers';
-import {
-  helmetMiddleware,
-  corsOptions,
-  apiLimiter,
-  authLimiter,
-  orderLimiter,
-  validateApiKey,
-  sanitizeInput,
-  secureHeaders,
-  maskSensitiveData,
-} from '../middleware/security';
-import {
-  validateCustomerInfo,
-  validateBasket,
-  validateOrderPayload,
-} from '../middleware/validation';
 
 const app = express();
-
-// ============================================================
-// SECURITY MIDDLEWARE - Applied in order of importance
-// ============================================================
-app.use(helmetMiddleware); // Security headers
-app.use(secureHeaders); // Additional security headers
-app.use(cors(corsOptions)); // CORS with whitelist
-app.use(express.json({ limit: '10kb' })); // Limit payload size
-app.use(sanitizeInput); // Sanitize inputs
-
-// Rate limiting
-if (config.security.enableRateLimiting) {
-  app.use(apiLimiter); // Global rate limiter
-}
-
-// API Key validation (after rate limiter)
-app.use(validateApiKey);
+app.use(cors());
+app.use(express.json());
 
 const producer = new RabbitMQProducer();
 
@@ -66,11 +28,7 @@ app.get('/', (req: Request, res: Response) => {
       queueInfo: 'GET /queue/info',
       candies: 'GET /api/candies',
       sendMessage: 'POST /api/messages',
-      customers: 'GET /api/customers',
-      customer: 'GET /api/customers/:id',
       createCustomer: 'POST /api/customers',
-      updateCustomer: 'PUT /api/customers/:id',
-      deleteCustomer: 'DELETE /api/customers/:id',
       createOrder: 'POST /api/orders',
       createCandyOrder: 'POST /api/orders/candy',
     },
@@ -86,9 +44,8 @@ app.get('/queue/info', async (req: Request, res: Response) => {
     const queueInfo = await producer.getQueueInfo();
     res.json(queueInfo);
   } catch (error: any) {
-    logger.error('Failed to get queue info', { error: maskSensitiveData(error) });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to retrieve queue info' : error.message });
+    logger.error('Failed to get queue info', { error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -105,46 +62,7 @@ app.get('/api/candies', (req: Request, res: Response) => {
   }
 });
 
-// GET all customers
-app.get('/api/customers', orderLimiter, async (req: Request, res: Response) => {
-  try {
-    const customers = getAllCustomers();
-    res.json({
-      success: true,
-      customers,
-      total: customers.length,
-    });
-  } catch (error: any) {
-    logger.error('Failed to get customers', { error: maskSensitiveData(error) });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to retrieve customers' : error.message });
-  }
-});
-
-// GET customer by ID
-app.get('/api/customers/:id', orderLimiter, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const customer = getCustomerById(id);
-    
-    if (!customer) {
-      return res.status(404).json({
-        error: 'Customer not found',
-      });
-    }
-    
-    res.json({
-      success: true,
-      customer,
-    });
-  } catch (error: any) {
-    logger.error('Failed to get customer', { error: maskSensitiveData(error) });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to retrieve customer' : error.message });
-  }
-});
-
-app.post('/api/messages', validateOrderPayload, orderLimiter, authLimiter, async (req: Request, res: Response) => {
+app.post('/api/messages', async (req: Request, res: Response) => {
   try {
     const { event, payload } = req.body;
 
@@ -191,41 +109,25 @@ app.post('/api/messages', validateOrderPayload, orderLimiter, authLimiter, async
   }
 });
 
-app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
+app.post('/api/customers', async (req: Request, res: Response) => {
   try {
-    const { name, email, phone, address, city, postalCode } = req.body;
-    const id = uuidv4(); // Generate customer ID
+    const { id, name, email, phone } = req.body;
 
-    if (!name || !email) {
+    if (!id || !name || !email) {
       return res.status(400).json({
-        error: 'Missing required fields: name, email',
+        error: 'Missing required fields: id, name, email',
       });
     }
 
-    // Save customer to local database
-    const customer = createCustomer({
-      id,
-      name,
-      email,
-      phone,
-      address,
-      city,
-      postalCode,
-    });
-
-    // Also send message to RabbitMQ for Salesforce sync
     const message: RabbitMQMessage = {
       messageId: uuidv4(),
       event: EventType.CREATE_CUSTOMER,
       payload: {
         customer: {
-          id: customer.id,
-          name: customer.name,
-          email: customer.email,
-          phone: customer.phone,
-          address: customer.address,
-          city: customer.city,
-          postalCode: customer.postalCode,
+          id,
+          name,
+          email,
+          phone,
         },
       },
       timestamp: new Date().toISOString(),
@@ -234,143 +136,22 @@ app.post('/api/customers', validateCustomerInfo, orderLimiter, async (req: Reque
     const sent = await producer.sendMessage(message);
 
     if (sent) {
-      logger.info('API: Customer created and message sent to RabbitMQ', {
-        customerId: customer.id,
-        messageId: message.messageId,
-      });
       res.status(201).json({
         success: true,
         messageId: message.messageId,
-        message: 'Customer created and message sent to queue',
-        data: customer,
+        message: 'Customer creation message sent',
+        data: message,
       });
     } else {
-      // Customer is saved locally even if RabbitMQ fails
-      logger.warn('API: Customer created locally but RabbitMQ message failed', {
-        customerId: customer.id,
-      });
-      res.status(201).json({
-        success: true,
-        message: 'Customer created locally, but failed to send message to queue',
-        data: customer,
-        warning: 'RabbitMQ message failed',
+      res.status(503).json({
+        error: 'Failed to send message',
       });
     }
   } catch (error: any) {
-    logger.error('API: Failed to create customer', {
-      error: maskSensitiveData(error),
+    logger.error('API: Failed to create customer message', {
+      error: error.message,
     });
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    if (error.message && error.message.includes('already exists')) {
-      return res.status(409).json({ error: error.message });
-    }
-    
-    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
-  }
-});
-
-// PUT update customer
-app.put('/api/customers/:id', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { name, email, phone, address, city, postalCode } = req.body;
-
-    const updatedCustomer = updateCustomer(id, {
-      name,
-      email,
-      phone,
-      address,
-      city,
-      postalCode,
-    });
-
-    if (!updatedCustomer) {
-      return res.status(404).json({
-        error: 'Customer not found',
-      });
-    }
-
-    // Also send update message to RabbitMQ for Salesforce sync
-    const message: RabbitMQMessage = {
-      messageId: uuidv4(),
-      event: EventType.UPDATE_CUSTOMER,
-      payload: {
-        customer: {
-          id: updatedCustomer.id,
-          name: updatedCustomer.name,
-          email: updatedCustomer.email,
-          phone: updatedCustomer.phone,
-          address: updatedCustomer.address,
-          city: updatedCustomer.city,
-          postalCode: updatedCustomer.postalCode,
-        },
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    const sent = await producer.sendMessage(message);
-
-    if (sent) {
-      logger.info('API: Customer updated and message sent to RabbitMQ', {
-        customerId: id,
-        messageId: message.messageId,
-      });
-      res.json({
-        success: true,
-        messageId: message.messageId,
-        message: 'Customer updated and message sent to queue',
-        data: updatedCustomer,
-      });
-    } else {
-      // Customer is updated locally even if RabbitMQ fails
-      logger.warn('API: Customer updated locally but RabbitMQ message failed', {
-        customerId: id,
-      });
-      res.json({
-        success: true,
-        message: 'Customer updated locally, but failed to send message to queue',
-        data: updatedCustomer,
-        warning: 'RabbitMQ message failed',
-      });
-    }
-  } catch (error: any) {
-    logger.error('API: Failed to update customer', {
-      error: maskSensitiveData(error),
-    });
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    if (error.message && error.message.includes('already exists')) {
-      return res.status(409).json({ error: error.message });
-    }
-    
-    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
-  }
-});
-
-// DELETE customer
-app.delete('/api/customers/:id', orderLimiter, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const deleted = deleteCustomer(id);
-
-    if (!deleted) {
-      return res.status(404).json({
-        error: 'Customer not found',
-      });
-    }
-
-    logger.info('API: Customer deleted', { customerId: id });
-    res.json({
-      success: true,
-      message: 'Customer deleted successfully',
-    });
-  } catch (error: any) {
-    logger.error('API: Failed to delete customer', {
-      error: maskSensitiveData(error),
-    });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -379,7 +160,7 @@ app.delete('/api/customers/:id', orderLimiter, async (req: Request, res: Respons
  * Maar jullie MessagePayload type vereist dat customer minstens { id, name, email } bevat.
  * Daarom vragen we in deze endpoint ook customerName + customerEmail (en optioneel phone).
  */
-app.post('/api/orders', orderLimiter, async (req: Request, res: Response) => {
+app.post('/api/orders', async (req: Request, res: Response) => {
   try {
     const { id, customerId, amount, currency, items, customerName, customerEmail, customerPhone } =
       req.body;
@@ -427,14 +208,13 @@ app.post('/api/orders', orderLimiter, async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error('API: Failed to create order message', {
-      error: maskSensitiveData(error),
+      error: error.message,
     });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Request, res: Response) => {
+app.post('/api/orders/candy', async (req: Request, res: Response) => {
   try {
     const { basket, customerInfo } = req.body;
 
@@ -565,10 +345,9 @@ app.post('/api/orders/candy', validateCustomerInfo, orderLimiter, async (req: Re
     }
   } catch (error: any) {
     logger.error('API: Failed to create candy order', {
-      error: maskSensitiveData(error),
+      error: error.message,
     });
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({ error: isProduction ? 'Failed to process request' : error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -587,25 +366,10 @@ process.on('SIGINT', async () => {
 validateConfig();
 const PORT = config.api.port;
 // Listen on 0.0.0.0 to accept connections from outside container
-
-// Global error handler for uncaught errors
-app.use((err: any, req: Request, res: Response) => {
-  logger.error('Unhandled error', {
-    error: maskSensitiveData(err),
-    path: req.path,
-    method: req.method,
-  });
-  const isProduction = process.env.NODE_ENV === 'production';
-  res.status(err.status || 500).json({
-    error: isProduction ? 'Internal server error' : err.message,
-  });
-});
-
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Producer API server running on port ${PORT}`);
-  logger.info('Security features enabled: CORS whitelist, Rate limiting, API key validation, Helmet headers');
   console.log(`\nProducer API Server running on http://0.0.0.0:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Queue info: http://localhost:${PORT}/queue/info (requires API key)`);
-  console.log(`Send message: POST http://localhost:${PORT}/api/messages (requires API key)\n`);
+  console.log(`Queue info: http://localhost:${PORT}/queue/info`);
+  console.log(`Send message: POST http://localhost:${PORT}/api/messages\n`);
 });
