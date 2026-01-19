@@ -1,6 +1,7 @@
 import { RabbitMQConsumer } from '../rabbitmq/consumer';
-import { config, validateConfig } from '../config';
+import { validateConfig } from '../config';
 import logger from '../utils/logger';
+import { SalesforceClient } from '../services/salesforce-client';
 
 async function startConsumer() {
   try {
@@ -8,9 +9,12 @@ async function startConsumer() {
 
     logger.info('Starting Consumer Service...');
 
-    // Initialiseer RabbitMQ consumer
-    // Note: RabbitMQConsumer gebruikt intern SalesforceRefreshService
-    const consumer = new RabbitMQConsumer();
+    // ✅ Initialiseer Salesforce client
+    const salesforceClient = new SalesforceClient();
+
+    // ✅ Injecteer SalesforceClient in RabbitMQConsumer
+    const consumer = new RabbitMQConsumer(salesforceClient);
+
     await consumer.connect();
     await consumer.startConsuming();
 

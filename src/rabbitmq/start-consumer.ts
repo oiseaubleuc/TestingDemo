@@ -1,13 +1,14 @@
 import "dotenv/config";
 import logger from "../utils/logger";
 import { RabbitMQConsumer } from "./consumer";
+import { SalesforceClient } from "../services/salesforce-client";
 
 async function main() {
   logger.info("Starting RabbitMQ consumer...");
 
-  // Als jouw RabbitMQConsumer constructor args verwacht, pas dit aan.
-  // In de file die je net van mij kreeg verwacht hij GEEN args.
-  const consumer = new RabbitMQConsumer();
+  // ✅ Maak Salesforce client aan en injecteer in de consumer
+  const salesforceClient = new SalesforceClient();
+  const consumer = new RabbitMQConsumer(salesforceClient);
 
   await consumer.connect();
   await consumer.startConsuming();
@@ -19,3 +20,4 @@ main().catch((err) => {
   logger.error("Consumer crashed", { err });
   process.exit(1);
 });
+
