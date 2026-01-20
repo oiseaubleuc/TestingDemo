@@ -12,7 +12,9 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "get-refresh-token": "ts-node --files ./scripts/get-refresh-token.ts",
-    "backup:customers": "ts-node ./scripts/backup-customers.ts"
+    "backup:customers": "ts-node ./scripts/backup-customers.ts",
+    "setup:hooks": "bash scripts/setup-git-hooks.sh",
+    "commit": "bash scripts/auto-commit.sh"
   },
   "keywords": [
     "rabbitmq",

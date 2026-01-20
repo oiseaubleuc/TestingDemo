@@ -7,6 +7,8 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Manual trigger
 
+# CI runs first, then CD pipeline is triggered on success
+
 jobs:
   # ============================================
   # Lint Job (Parallel)

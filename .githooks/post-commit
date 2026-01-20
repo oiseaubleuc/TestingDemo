@@ -1,0 +1,10 @@
+#!/bin/bash
+# Post-commit hook - Optional: can be used for notifications or logging
+
+# Log commit info (optional)
+COMMIT_MSG=$(git log -1 --pretty=%B)
+COMMIT_SHA=$(git rev-parse --short HEAD)
+
+echo "✅ Committed: $COMMIT_MSG ($COMMIT_SHA)"
+
+exit 0

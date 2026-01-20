@@ -91,6 +91,14 @@ class ApiClient {
     }
     return response.json();
   }
+
+  async getHealth() {
+    const response = await fetch(`${API_BASE_URL}/health`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch health status');
+    }
+    return response.json();
+  }
 }
 
 export const apiClient = new ApiClient();
