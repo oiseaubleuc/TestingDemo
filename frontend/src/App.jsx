@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { apiClient } from './api/client';
-import './App.css';
+import { useState, useEffect } from "react";
+import { apiClient } from "./api/client";
+import "./App.css";
 
 function App() {
   const [loading, setLoading] = useState(false);
@@ -9,15 +9,15 @@ function App() {
   const [candies, setCandies] = useState([]);
   const [basket, setBasket] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
   const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    postalCode: '',
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    city: "",
+    postalCode: "",
   });
 
   useEffect(() => {
@@ -31,12 +31,12 @@ function App() {
       if (response && response.candies) {
         setCandies(response.candies);
       } else {
-        throw new Error('Invalid response from server');
+        throw new Error("Invalid response from server");
       }
     } catch (error) {
-      const errorMessage = error.message || 'Failed to load candies';
-      showMessage('error', errorMessage);
-      console.error('Error loading candies:', error);
+      const errorMessage = error.message || "Failed to load candies";
+      showMessage("error", errorMessage);
+      console.error("Error loading candies:", error);
     } finally {
       setLoadingCandies(false);
     }
@@ -50,15 +50,17 @@ function App() {
   const addToBasket = (candy) => {
     const existingItem = basket.find((item) => item.candyId === candy.id);
     if (existingItem) {
-      setBasket(basket.map((item) =>
-        item.candyId === candy.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
+      setBasket(
+        basket.map((item) =>
+          item.candyId === candy.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      );
     } else {
       setBasket([...basket, { candyId: candy.id, candy, quantity: 1 }]);
     }
-    showMessage('success', `${candy.name} toegevoegd aan mandje!`);
+    showMessage("success", `${candy.name} toegevoegd aan mandje!`);
   };
 
   const updateBasketQuantity = (candyId, quantity) => {
@@ -66,9 +68,11 @@ function App() {
       removeFromBasket(candyId);
       return;
     }
-    setBasket(basket.map((item) =>
-      item.candyId === candyId ? { ...item, quantity } : item
-    ));
+    setBasket(
+      basket.map((item) =>
+        item.candyId === candyId ? { ...item, quantity } : item
+      )
+    );
   };
 
   const removeFromBasket = (candyId) => {
@@ -77,7 +81,7 @@ function App() {
 
   const getTotalPrice = () => {
     return basket.reduce((total, item) => {
-      return total + (item.candy.pricePer100g * item.quantity);
+      return total + item.candy.pricePer100g * item.quantity;
     }, 0);
   };
 
@@ -87,21 +91,21 @@ function App() {
 
   const handleCheckout = async (e) => {
     e.preventDefault();
-    
+
     if (basket.length === 0) {
-      showMessage('error', 'Je mandje is leeg!');
+      showMessage("error", "Je mandje is leeg!");
       return;
     }
 
     if (!customerInfo.name || !customerInfo.email) {
-      showMessage('error', 'Vul alstublieft naam en email in');
+      showMessage("error", "Vul alstublieft naam en email in");
       return;
     }
 
     setLoading(true);
     try {
       const orderRequest = {
-        basket: basket.map(item => ({
+        basket: basket.map((item) => ({
           candyId: item.candyId,
           quantity: item.quantity,
         })),
@@ -109,44 +113,58 @@ function App() {
       };
 
       const response = await apiClient.createCandyOrder(orderRequest);
-      showMessage('success', `Bestelling geplaatst! Order ID: ${response.data.orderId}`);
-      
+      showMessage(
+        "success",
+        `Bestelling geplaatst! Order ID: ${response.data.orderId}`
+      );
+
       // Reset basket and form
       setBasket([]);
       setShowCheckout(false);
       setCustomerInfo({
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        city: '',
-        postalCode: '',
+        name: "",
+        email: "",
+        phone: "",
+        address: "",
+        city: "",
+        postalCode: "",
       });
     } catch (error) {
-      showMessage('error', error.message || 'Failed to place order');
+      showMessage("error", error.message || "Failed to place order");
     } finally {
       setLoading(false);
     }
   };
 
-  const categories = ['all', ...Array.from(new Set(candies.map(c => c.category)))];
-  const filteredCandies = selectedCategory === 'all'
-    ? candies
-    : candies.filter(c => c.category === selectedCategory);
+  const categories = [
+    "all",
+    ...Array.from(new Set(candies.map((c) => c.category))),
+  ];
+  const filteredCandies =
+    selectedCategory === "all"
+      ? candies
+      : candies.filter((c) => c.category === selectedCategory);
+
+  const goToLogin = () => {
+    window.location.href = "/login";
+  };
 
   return (
     <div className="app">
       <header className="header">
         <h1>🍬 Snoepjes Winkel 🍬</h1>
-        <p style={{ marginTop: '0.5rem', color: '#999', fontSize: '0.9rem' }}>
+        <p style={{ marginTop: "0.5rem", color: "#999", fontSize: "0.9rem" }}>
           Bestel je favoriete snoepjes per 100 gram
         </p>
+        <div style={{ marginTop: "0.75rem" }}>
+          <button onClick={goToLogin} className="login-btn">
+            Inloggen
+          </button>
+        </div>
       </header>
 
       {message && (
-        <div className={`message ${message.type}`}>
-          {message.text}
-        </div>
+        <div className={`message ${message.type}`}>{message.text}</div>
       )}
 
       <div className="shop-container">
@@ -166,12 +184,14 @@ function App() {
           {basket.length === 0 ? (
             <div className="basket-empty">
               <p>Je mandje is leeg</p>
-              <p className="basket-empty-hint">Voeg snoepjes toe om te beginnen!</p>
+              <p className="basket-empty-hint">
+                Voeg snoepjes toe om te beginnen!
+              </p>
             </div>
           ) : (
             <>
               <div className="basket-items">
-                {basket.map(item => (
+                {basket.map((item) => (
                   <div key={item.candyId} className="basket-item">
                     <div className="basket-item-info">
                       <strong>{item.candy.name}</strong>
@@ -182,7 +202,9 @@ function App() {
                     <div className="basket-item-controls">
                       <button
                         className="quantity-btn"
-                        onClick={() => updateBasketQuantity(item.candyId, item.quantity - 1)}
+                        onClick={() =>
+                          updateBasketQuantity(item.candyId, item.quantity - 1)
+                        }
                       >
                         -
                       </button>
@@ -191,7 +213,9 @@ function App() {
                       </span>
                       <button
                         className="quantity-btn"
-                        onClick={() => updateBasketQuantity(item.candyId, item.quantity + 1)}
+                        onClick={() =>
+                          updateBasketQuantity(item.candyId, item.quantity + 1)
+                        }
                       >
                         +
                       </button>
@@ -231,13 +255,15 @@ function App() {
 
         <main className="candies-main">
           <div className="category-filter">
-            {categories.map(category => (
+            {categories.map((category) => (
               <button
                 key={category}
-                className={`category-btn ${selectedCategory === category ? 'active' : ''}`}
+                className={`category-btn ${
+                  selectedCategory === category ? "active" : ""
+                }`}
                 onClick={() => setSelectedCategory(category)}
               >
-                {category === 'all' ? 'Alle Snoepjes' : category}
+                {category === "all" ? "Alle Snoepjes" : category}
               </button>
             ))}
           </div>
@@ -246,51 +272,55 @@ function App() {
             <div className="loading">Snoepjes laden...</div>
           ) : (
             <div className="candies-grid">
-              {filteredCandies.map(candy => {
+              {filteredCandies.map((candy) => {
                 // Emoji fallback voor verschillende snoepjes categorieën
                 const getCandyEmoji = (category) => {
                   const emojiMap = {
-                    'Zuur': '🍋',
-                    'Zacht': '🍬',
-                    'Drop': '🖤',
-                    'Chocolade': '🍫',
-                    'Fruit': '🍇',
-                    'Munt': '🌿',
-                    'Hard': '🍭',
-                    'Speciaal': '⭐'
+                    Zuur: "🍋",
+                    Zacht: "🍬",
+                    Drop: "🖤",
+                    Chocolade: "🍫",
+                    Fruit: "🍇",
+                    Munt: "🌿",
+                    Hard: "🍭",
+                    Speciaal: "⭐",
                   };
-                  return emojiMap[category] || '🍬';
+                  return emojiMap[category] || "🍬";
                 };
 
                 const candyEmoji = getCandyEmoji(candy.category);
-                
+
                 return (
                   <div key={candy.id} className="candy-card">
                     <div className="candy-image-container">
                       {candy.image ? (
-                        <img 
-                          src={candy.image} 
+                        <img
+                          src={candy.image}
                           alt={candy.name}
                           className="candy-image"
                           onError={(e) => {
                             // Fallback naar emoji als image niet laadt
                             const target = e.target;
-                            target.style.display = 'none';
+                            target.style.display = "none";
                             const emojiDiv = target.nextElementSibling;
-                            if (emojiDiv) emojiDiv.style.display = 'flex';
+                            if (emojiDiv) emojiDiv.style.display = "flex";
                           }}
                         />
                       ) : null}
-                      <div 
+                      <div
                         className="candy-emoji"
-                        style={{ display: candy.image ? 'none' : 'flex' }}
+                        style={{ display: candy.image ? "none" : "flex" }}
                       >
                         <span className="candy-emoji-large">{candyEmoji}</span>
                       </div>
                     </div>
                     <div className="candy-header">
                       <h3>{candy.name}</h3>
-                      <span className={`candy-category category-${candy.category.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <span
+                        className={`candy-category category-${candy.category
+                          .toLowerCase()
+                          .replace(/\s+/g, "-")}`}
+                      >
                         {candy.category}
                       </span>
                     </div>
@@ -324,7 +354,9 @@ function App() {
                 <input
                   type="text"
                   value={customerInfo.name}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+                  onChange={(e) =>
+                    setCustomerInfo({ ...customerInfo, name: e.target.value })
+                  }
                   required
                   placeholder="Jan Jansen"
                 />
@@ -334,7 +366,9 @@ function App() {
                 <input
                   type="email"
                   value={customerInfo.email}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
+                  onChange={(e) =>
+                    setCustomerInfo({ ...customerInfo, email: e.target.value })
+                  }
                   required
                   placeholder="jan@example.com"
                 />
@@ -344,7 +378,9 @@ function App() {
                 <input
                   type="tel"
                   value={customerInfo.phone}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+                  onChange={(e) =>
+                    setCustomerInfo({ ...customerInfo, phone: e.target.value })
+                  }
                   placeholder="+31 6 12345678"
                 />
               </div>
@@ -353,7 +389,12 @@ function App() {
                 <input
                   type="text"
                   value={customerInfo.address}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, address: e.target.value })}
+                  onChange={(e) =>
+                    setCustomerInfo({
+                      ...customerInfo,
+                      address: e.target.value,
+                    })
+                  }
                   placeholder="Straatnaam 123"
                 />
               </div>
@@ -363,7 +404,12 @@ function App() {
                   <input
                     type="text"
                     value={customerInfo.postalCode}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, postalCode: e.target.value })}
+                    onChange={(e) =>
+                      setCustomerInfo({
+                        ...customerInfo,
+                        postalCode: e.target.value,
+                      })
+                    }
                     placeholder="1234AB"
                   />
                 </div>
@@ -372,7 +418,9 @@ function App() {
                   <input
                     type="text"
                     value={customerInfo.city}
-                    onChange={(e) => setCustomerInfo({ ...customerInfo, city: e.target.value })}
+                    onChange={(e) =>
+                      setCustomerInfo({ ...customerInfo, city: e.target.value })
+                    }
                     placeholder="Amsterdam"
                   />
                 </div>
@@ -393,7 +441,7 @@ function App() {
                   className="submit-order-btn"
                   disabled={loading}
                 >
-                  {loading ? 'Bestellen...' : 'Bestelling plaatsen'}
+                  {loading ? "Bestellen..." : "Bestelling plaatsen"}
                 </button>
               </div>
             </form>
