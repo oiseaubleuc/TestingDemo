@@ -50,7 +50,8 @@ const producer = new RabbitMQProducer();
 
 producer.connect().catch((error) => {
   logger.error('Failed to initialize producer', { error });
-  process.exit(1);
+  logger.warn('API server will continue without RabbitMQ. Some features may be unavailable.');
+  // Don't exit - allow API to serve basic endpoints even without RabbitMQ
 });
 
 app.get('/', (req: Request, res: Response) => {

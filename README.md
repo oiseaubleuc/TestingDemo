@@ -145,25 +145,69 @@ curl http://localhost:5173
 
 ---
 
-## 9. CI Pipeline
+## 9. CI/CD Pipeline
 
-Het project heeft een CI pipeline geconfigureerd in `.github/workflows/ci.yml`.
+Het project heeft CI/CD pipelines geconfigureerd in `.github/workflows/`.
 
-### Pipeline Stages
+### CI Pipeline (`.github/workflows/ci.yml`)
 
-1. **Lint & Test** - TypeScript, ESLint, Build, Tests
-2. **Docker Build** - Build Docker image (geen push)
-3. **Docker Compose Test** - Volledige stack test
+**Pipeline Stages:**
+1. **Lint** - TypeScript, ESLint checks
+2. **Test** - Jest tests met RabbitMQ
+3. **Build** - Backend + Frontend build
+4. **Docker Build** - Docker image build
 
-### Triggers
-
+**Triggers:**
 - Push naar `main` branch
 - Pull requests naar `main`
 - Manual trigger via GitHub Actions UI
 
+### CD Pipeline (`.github/workflows/cd.yml`)
+
+**Pipeline Stages:**
+1. **Build** - Application build
+2. **Docker Build** - Docker image build
+3. **Deploy** - Deployment naar staging/production
+
+**Triggers:**
+- Push naar `main` branch (staging)
+- Tags (v*) (production)
+- Manual trigger met environment selectie
+
+**Environments:**
+- `staging` - Automatisch bij push naar main
+- `production` - Via manual trigger of tags
+
+## 10. Automatische Commit Messages
+
+Het project gebruikt automatische commit messages beperkt tot **maximaal 3 woorden**.
+
+### Setup
+
+```bash
+npm run setup:hooks
+```
+
+### Gebruik
+
+**Automatisch committen:**
+```bash
+npm run commit
+```
+
+Dit script:
+- Staged alle wijzigingen
+- Genereert automatisch een korte commit message (max 3 woorden)
+- Commit de wijzigingen
+
+**Handmatig committen:**
+Wanneer je handmatig commit, wordt de message automatisch afgekort tot 3 woorden als deze te lang is.
+
+Zie `COMMIT_GUIDE.md` voor meer details.
+
 ---
 
-## 10. Development
+## 11. Development
 
 ### Lokale Ontwikkeling
 
@@ -187,14 +231,14 @@ npm run start:frontend
 
 ---
 
-## 11. Mogelijke volgende stappen
+## 12. Mogelijke volgende stappen
 - Herwerken van Salesforce OAuth-flow
 - Activeren van Salesforce-verwerking in de consumer
 - Monitoring en observability
 
 ---
 
-## 12. Conclusie
+## 13. Conclusie
 Dit Proof of Concept toont aan dat:
 - RabbitMQ correct is opgezet en functioneert
 - Asynchrone communicatie betrouwbaar verloopt
