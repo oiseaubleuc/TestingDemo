@@ -1,10 +1,20 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://10.2.160.225:3000';
+
+/* =========================
+   Types
+========================= */
 
 export type Customer = {
-  id: string;
+  id?: string;
+  sfId?: string;
+  externalId?: string;
   name: string;
   email: string;
   phone?: string;
+  address?: string;
+  city?: string;
+  postalCode?: string;
 };
 
 export type OrderItem = {
@@ -36,7 +46,7 @@ export type MessageResponse = {
 export type CandyOrderRequest = {
   basket: Array<{
     candyId: string;
-    quantity: number; // aantal keer 100g
+    quantity: number;
   }>;
   customerInfo: {
     name: string;
@@ -58,81 +68,164 @@ export type Product = {
   category: string;
 };
 
+/* =========================
+   Auth helpers
+========================= */
+
+const TOKEN_KEY = 'snoepwinkel_token_v1';
+
+function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveToken(token: string) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
+}
+
+function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/* =========================
+   Fetch helper (JWT aware)
+========================= */
+
+async function apiFetch(path: string, options?: RequestInit) {
+  const token = getToken();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as any),
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  const text = await response.text();
+  let data: any = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+  }
+
+  return data;
+}
+
+/* =========================
+   API Client
+========================= */
+
 class ApiClient {
-  async getProducts(): Promise<{ success: boolean; products: Product[]; total: number }> {
-    const response = await fetch(`${API_BASE_URL}/api/products`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch products');
-    }
-    return response.json();
-  }
+  /* ---------- AUTH ---------- */
 
-  async createCandyOrder(order: CandyOrderRequest): Promise<MessageResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/orders/candy`, {
+  async loginWithEmail(email: string): Promise<{ token: string; email: string }> {
+    const res = await apiFetch('/api/auth/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(order),
+      body: JSON.stringify({ email }),
     });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error((error as any).error || 'Failed to create candy order');
+
+    if (!res?.success || !res?.token) {
+      throw new Error('Login mislukt');
     }
-    return response.json();
+
+    saveToken(res.token);
+    return { token: res.token, email: res.email };
   }
 
-  async getQueueInfo(): Promise<QueueInfo> {
-    const response = await fetch(`${API_BASE_URL}/queue/info`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch queue info');
+  logout() {
+    clearToken();
+  }
+
+  /* ---------- CUSTOMER ---------- */
+
+  async getCustomerByEmail(email: string): Promise<{
+    exists: boolean;
+    customer: Customer | null;
+  }> {
+    const res = await apiFetch(
+      `/api/customers/by-email?email=${encodeURIComponent(email)}`
+    );
+
+    if (!res?.success) {
+      throw new Error('Customer lookup failed');
     }
-    return response.json();
+
+    return {
+      exists: !!res.exists,
+      customer: res.customer || null,
+    };
   }
 
   async createCustomer(customer: Customer): Promise<MessageResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/customers`, {
+    return apiFetch('/api/customers', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(customer),
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to create customer');
-    }
-    return response.json();
+  }
+
+  /* ---------- PRODUCTS ---------- */
+
+  async getProducts(): Promise<{
+    success: boolean;
+    products: Product[];
+    total: number;
+  }> {
+    return apiFetch('/api/products');
+  }
+
+  /* ---------- ORDERS ---------- */
+
+  async createCandyOrder(order: CandyOrderRequest): Promise<MessageResponse> {
+    return apiFetch('/api/orders/candy', {
+      method: 'POST',
+      body: JSON.stringify(order),
+    });
   }
 
   async createOrder(order: Order): Promise<MessageResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/orders`, {
+    return apiFetch('/api/orders', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(order),
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to create order');
-    }
-    return response.json();
   }
 
+  /* ---------- QUEUE ---------- */
+
+  async getQueueInfo(): Promise<QueueInfo> {
+    return apiFetch('/queue/info');
+  }
+
+  /* ---------- RAW MESSAGE ---------- */
+
   async sendMessage(event: string, payload: any): Promise<MessageResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/messages`, {
+    return apiFetch('/api/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ event, payload }),
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to send message');
-    }
-    return response.json();
   }
 }
 

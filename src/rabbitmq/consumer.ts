@@ -1,5 +1,5 @@
 // src/rabbitmq/consumer.ts
-import amqp, { Channel, ChannelModel, ConsumeMessage } from "amqplib";	
+import amqp, { Channel, ChannelModel, ConsumeMessage } from "amqplib";
 import { RabbitMQMessage, EventType } from "../types/message";
 import { config } from "../config";
 import logger from "../utils/logger";
@@ -15,7 +15,7 @@ type OrderItem = {
 };
 
 export class RabbitMQConsumer {
-private connection: ChannelModel | null = null;
+  private connection: ChannelModel | null = null;
   private channel: Channel | null = null;
 
   private sf = new SalesforceRefreshService();
@@ -175,10 +175,8 @@ private connection: ChannelModel | null = null;
 
       const items = (payload.order.items ?? []) as OrderItem[];
 
-      // Order Lines altijd "upserten" (idempotent per lijn)
       await this.upsertOrderLines(orderSfId, orderExternalId, items);
 
-      // Stock enkel verlagen bij nieuwe order
       if (createdNew) {
         await this.decrementStockForOrderItems(items, orderExternalId);
       } else {
@@ -344,13 +342,6 @@ private connection: ChannelModel | null = null;
     }
   }
 
-  // Order Line object + fields (volgens jouw screenshots):
-  // Object: OrderLineCustom__c
-  // Lookup naar Order: Order_c__c
-  // External Product Id: ExternalProductId_c__c
-  // Quantity: Quantity_c__c
-  // Price: Price_c__c
-  // Name: standaard Name
   private async upsertOrderLines(orderSfId: string, orderExternalId: string, items: OrderItem[]): Promise<void> {
     if (!Array.isArray(items) || items.length === 0) return;
 
@@ -358,8 +349,6 @@ private connection: ChannelModel | null = null;
 
     const instance = this.sfInstance();
     const v = this.sfApiVersion();
-    const queryUrl = `${instance}/services/data/v${v}/query`;
-    const sobjectUrl = `${instance}/services/data/v${v}/sobjects/OrderLineCustom__c`;
 
     for (const item of items) {
       const externalProductId = String(item.productId);
@@ -370,56 +359,25 @@ private connection: ChannelModel | null = null;
         throw this.permanentError(`Ongeldig order item (productId/quantity): ${JSON.stringify(item)}`, 400);
       }
 
-      // Idempotency sleutel per order + product
-      const lineKey = `${orderExternalId}:${externalProductId}`;
-      const checkQ = `
-        SELECT Id
-        FROM OrderLineCustom__c
-        WHERE Name = '${this.escapeSoql(lineKey)}'
-        LIMIT 1
-      `;
+      const lineExternalId = `${orderExternalId}:${externalProductId}`;
+
+      const upsertUrl =
+        `${instance}/services/data/v${v}/sobjects/OrderLineCustom__c/External_Order_Line_Id__c/` +
+        `${encodeURIComponent(lineExternalId)}`;
 
       try {
-        const existing = await this.sf.client.get(queryUrl, { params: { q: checkQ } });
-        const rec = existing.data.records?.[0];
-
-        if (rec?.Id) {
-          const updateUrl = `${sobjectUrl}/${encodeURIComponent(rec.Id)}`;
-          await this.sf.client.patch(updateUrl, {
-            Order_c__c: orderSfId,
-            ExternalProductId_c__c: externalProductId,
-            Quantity_c__c: qty,
-            Price_c__c: price,
-          });
-
-          logger.info("Salesforce: Order line updated", {
-            orderExternalId,
-            orderSfId,
-            lineKey,
-            orderLineSfId: rec.Id,
-            externalProductId,
-            qty,
-            price,
-          });
-
-          continue;
-        }
-
-        const created = await this.sf.client.post(sobjectUrl, {
-          Name: lineKey,
+        await this.sf.client.patch(upsertUrl, {
+          Name: lineExternalId,
           Order_c__c: orderSfId,
           ExternalProductId_c__c: externalProductId,
           Quantity_c__c: qty,
           Price_c__c: price,
         });
 
-        const newId = created?.data?.id as string | undefined;
-
-        logger.info("Salesforce: Order line created", {
+        logger.info("Salesforce: Order line upserted", {
           orderExternalId,
           orderSfId,
-          lineKey,
-          orderLineSfId: newId,
+          lineExternalId,
           externalProductId,
           qty,
           price,

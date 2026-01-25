@@ -10,6 +10,9 @@ type BasketItem = {
 };
 
 const CART_STORAGE_KEY = 'snoepwinkel_basket_v1';
+const AUTH_TOKEN_KEY = 'snoepwinkel_token_v1';
+const AUTH_EMAIL_KEY = 'snoepwinkel_email_v1';
+const CUSTOMER_INFO_KEY = 'snoepwinkel_customerinfo_v1';
 
 function loadBasketFromSession(): BasketItem[] {
   try {
@@ -39,6 +42,85 @@ function saveBasketToSession(basket: BasketItem[]) {
   }
 }
 
+function normalizeEmail(email: string) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function getStoredEmail(): string | null {
+  try {
+    return localStorage.getItem(AUTH_EMAIL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveAuth(token: string, email: string) {
+  try {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_EMAIL_KEY, email);
+  } catch {
+    // ignore
+  }
+}
+
+function clearAuth() {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_EMAIL_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function loadSavedCustomerInfo(): {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  postalCode: string;
+} | null {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_INFO_KEY);
+    if (!raw) return null;
+    const x = JSON.parse(raw);
+    if (!x || typeof x !== 'object') return null;
+    return {
+      name: String(x.name ?? ''),
+      email: String(x.email ?? ''),
+      phone: String(x.phone ?? ''),
+      address: String(x.address ?? ''),
+      city: String(x.city ?? ''),
+      postalCode: String(x.postalCode ?? ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomerInfo(info: {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  postalCode: string;
+}) {
+  try {
+    localStorage.setItem(CUSTOMER_INFO_KEY, JSON.stringify(info));
+  } catch {
+    // ignore
+  }
+}
+
 function App() {
   const [loading, setLoading] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -49,13 +131,26 @@ function App() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    postalCode: '',
+  const [token, setToken] = useState<string | null>(() => getStoredToken());
+  const [authEmail, setAuthEmail] = useState<string>(() => getStoredEmail() || '');
+
+  const [customerInfo, setCustomerInfo] = useState(() => {
+    const saved = loadSavedCustomerInfo();
+    return (
+      saved || {
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        city: '',
+        postalCode: '',
+      }
+    );
+  });
+
+  const [loginEmail, setLoginEmail] = useState<string>(() => {
+    const e = getStoredEmail();
+    return e || customerInfo.email || '';
   });
 
   useEffect(() => {
@@ -79,6 +174,15 @@ function App() {
     );
   }, [products]);
 
+  useEffect(() => {
+    saveCustomerInfo(customerInfo);
+  }, [customerInfo]);
+
+  const showMessage = (type: 'success' | 'error', text: string) => {
+    setMessage({ type, text });
+    setTimeout(() => setMessage(null), 5000);
+  };
+
   const loadProducts = async () => {
     try {
       setLoadingProducts(true);
@@ -89,11 +193,6 @@ function App() {
     } finally {
       setLoadingProducts(false);
     }
-  };
-
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 5000);
   };
 
   const addToBasket = (product: Product) => {
@@ -151,12 +250,59 @@ function App() {
     }
   };
 
-  const getTotalPrice = () => {
-    return basket.reduce((total, item) => total + item.product.price * item.quantity, 0);
+  const getTotalPrice = () => basket.reduce((total, item) => total + item.product.price * item.quantity, 0);
+  const getTotalWeight = () => basket.reduce((total, item) => total + item.quantity, 0) * 100;
+
+  const handleLogin = async () => {
+    const email = normalizeEmail(loginEmail);
+    if (!email || !email.includes('@')) {
+      showMessage('error', 'Geef een geldig e-mailadres.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const loginRes = await apiClient.loginWithEmail(email);
+      saveAuth(loginRes.token, email);
+      setToken(loginRes.token);
+      setAuthEmail(email);
+
+      const lookup = await apiClient.getCustomerByEmail(email);
+
+      if (lookup.exists && lookup.customer) {
+        setCustomerInfo({
+          name: lookup.customer.name ?? '',
+          email: lookup.customer.email ?? email,
+          phone: lookup.customer.phone ?? '',
+          address: lookup.customer.address ?? '',
+          city: lookup.customer.city ?? '',
+          postalCode: lookup.customer.postalCode ?? '',
+        });
+        showMessage('success', 'Welkom terug! Gegevens zijn ingevuld.');
+      } else {
+        setCustomerInfo({
+          name: '',
+          email,
+          phone: '',
+          address: '',
+          city: '',
+          postalCode: '',
+        });
+        showMessage('success', 'Nieuwe klant. Vul je gegevens éénmalig in.');
+      }
+    } catch (e: any) {
+      showMessage('error', e?.message || 'Doorgaan mislukt');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getTotalWeight = () => {
-    return basket.reduce((total, item) => total + item.quantity, 0) * 100;
+  const handleLogout = () => {
+    apiClient.logout();
+    clearAuth();
+    setToken(null);
+    setAuthEmail('');
+    showMessage('success', 'Uitgelogd.');
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -167,8 +313,13 @@ function App() {
       return;
     }
 
-    if (!customerInfo.name || !customerInfo.email) {
-      showMessage('error', 'Vul alstublieft naam en email in');
+    if (!customerInfo.email) {
+      showMessage('error', 'Vul eerst je email in en klik op Doorgaan.');
+      return;
+    }
+
+    if (!customerInfo.name) {
+      showMessage('error', 'Vul je naam in.');
       return;
     }
 
@@ -187,14 +338,6 @@ function App() {
 
       clearBasket();
       setShowCheckout(false);
-      setCustomerInfo({
-        name: '',
-        email: '',
-        phone: '',
-        address: '',
-        city: '',
-        postalCode: '',
-      });
 
       await loadProducts();
     } catch (error: any) {
@@ -363,6 +506,51 @@ function App() {
         <div className="checkout-modal">
           <div className="checkout-content">
             <h2>Afrekenen</h2>
+
+            <div
+              style={{
+                padding: '12px',
+                border: '1px solid #e5e7eb',
+                borderRadius: 12,
+                marginBottom: 16,
+                background: '#fafafa',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
+                E-mail (voor automatisch invullen)
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="jij@example.com"
+                  style={{ flex: 1 }}
+                  required
+                />
+                <button type="button" onClick={handleLogin} disabled={loading}>
+                  {loading ? '...' : 'Doorgaan'}
+                </button>
+
+                {token && (
+                  <button type="button" onClick={handleLogout} disabled={loading} style={{ opacity: 0.9 }}>
+                    Uitloggen
+                  </button>
+                )}
+              </div>
+
+              <div style={{ fontSize: 12, color: '#777', marginTop: 8 }}>
+                {token ? (
+                  <>
+                    Ingelogd als <strong>{authEmail}</strong>
+                  </>
+                ) : (
+                  'We vullen je gegevens automatisch in als we je kennen. Anders vul je ze éénmalig in.'
+                )}
+              </div>
+            </div>
+
             <form onSubmit={handleCheckout}>
               <div className="form-group">
                 <label>Naam *</label>
@@ -374,16 +562,11 @@ function App() {
                   placeholder="Jan Jansen"
                 />
               </div>
-              <div className="form-group">
-                <label>Email *</label>
-                <input
-                  type="email"
-                  value={customerInfo.email}
-                  onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-                  required
-                  placeholder="jan@example.com"
-                />
+
+              <div style={{ marginTop: -6, marginBottom: 10, fontSize: 13, color: '#555' }}>
+                <strong>Email:</strong> {customerInfo.email || loginEmail || '-'}
               </div>
+
               <div className="form-group">
                 <label>Telefoon</label>
                 <input
@@ -393,6 +576,7 @@ function App() {
                   placeholder="+31 6 12345678"
                 />
               </div>
+
               <div className="form-group">
                 <label>Adres</label>
                 <input
@@ -402,6 +586,7 @@ function App() {
                   placeholder="Straatnaam 123"
                 />
               </div>
+
               <div className="form-row">
                 <div className="form-group">
                   <label>Postcode</label>
@@ -422,9 +607,11 @@ function App() {
                   />
                 </div>
               </div>
+
               <div className="checkout-total">
                 <strong>Totaal: €{getTotalPrice().toFixed(2)}</strong>
               </div>
+
               <div className="checkout-actions">
                 <button type="button" className="cancel-btn" onClick={() => setShowCheckout(false)}>
                   Annuleren

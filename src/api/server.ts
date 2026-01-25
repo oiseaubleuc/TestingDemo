@@ -1,6 +1,7 @@
 // src/api/server.ts
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { RabbitMQProducer } from '../rabbitmq/producer';
 import { RabbitMQMessage, EventType, MessagePayload } from '../types/message';
@@ -8,6 +9,7 @@ import { config, validateConfig } from '../config';
 import logger from '../utils/logger';
 import { CANDIES, getCandyById } from '../data/candies';
 import { getProducts, getProductByExternalProductId } from '../services/salesforce-products-service';
+import { SalesforceRefreshService } from '../services/salesforce-refresh';
 
 const app = express();
 
@@ -38,11 +40,75 @@ app.options('*', cors());
 app.use(express.json());
 
 const producer = new RabbitMQProducer();
+const sf = new SalesforceRefreshService();
 
 producer.connect().catch((error) => {
   logger.error('Failed to initialize producer', { error });
   process.exit(1);
 });
+
+/**
+ * Auth helpers (Remember me via email + JWT)
+ */
+function normalizeEmail(email: string): string {
+  return String(email || '').trim().toLowerCase();
+}
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
+}
+
+function createToken(email: string): string {
+  const secret = requireEnv('JWT_SECRET') as jwt.Secret;
+  const expiresIn = (process.env.JWT_EXPIRES_IN || '30d') as jwt.SignOptions['expiresIn'];
+  return jwt.sign({ email }, secret, { expiresIn });
+}
+
+type AuthedRequest = Request & { user?: { email: string } };
+
+function getAuthEmail(req: Request): string | null {
+  const auth = req.headers?.authorization;
+  if (!auth) return null;
+
+  const m = String(auth).match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+
+  try {
+    const secret = requireEnv('JWT_SECRET') as jwt.Secret;
+    const payload = jwt.verify(m[1], secret) as any;
+    const email = normalizeEmail(payload?.email);
+    return email || null;
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {
+  const email = getAuthEmail(req);
+  if (!email) return res.status(401).json({ success: false, error: 'Login required' });
+  req.user = { email };
+  next();
+}
+
+/**
+ * Salesforce helpers (voor by-email lookup)
+ */
+function sfInstance(): string {
+  const instance = process.env.SALESFORCE_INSTANCE_URL;
+  if (!instance) throw new Error('Missing env var: SALESFORCE_INSTANCE_URL');
+  return instance.replace(/\/+$/, '');
+}
+
+function sfApiVersion(): string {
+  const raw = process.env.SALESFORCE_API_VERSION ?? '60.0';
+  return raw.replace(/^v/i, '');
+}
+
+function escapeSoql(value: string): string {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
 
 app.get('/', (_req: Request, res: Response) => {
   res.json({
@@ -54,6 +120,8 @@ app.get('/', (_req: Request, res: Response) => {
       queueInfo: 'GET /queue/info',
       candies: 'GET /api/candies',
       products: 'GET /api/products',
+      authLogin: 'POST /api/auth/login',
+      customerByEmail: 'GET /api/customers/by-email?email=...',
       sendMessage: 'POST /api/messages',
       createCustomer: 'POST /api/customers',
       createOrder: 'POST /api/orders',
@@ -107,6 +175,94 @@ app.get('/api/products', async (_req: Request, res: Response) => {
     res.status(500).json({
       error: e?.message,
       sf: { status, url, data },
+    });
+  }
+});
+
+/**
+ * Remember-me login (email -> JWT token)
+ */
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Missing required field: email' });
+    }
+
+    const token = createToken(email);
+
+    return res.json({
+      success: true,
+      token,
+      email,
+      expiresIn: process.env.JWT_EXPIRES_IN || '30d',
+    });
+  } catch (error: any) {
+    logger.error('API: Failed to login', { error: error.message });
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Customer lookup by email (Salesforce)
+ * GET /api/customers/by-email?email=...
+ *
+ * - Als gevonden => exists=true + customer data (voor autofill)
+ * - Anders => exists=false
+ */
+app.get('/api/customers/by-email', async (req: Request, res: Response) => {
+  try {
+    const emailRaw = String(req.query.email ?? '');
+    const email = normalizeEmail(emailRaw);
+
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Invalid email' });
+    }
+
+    await sf.authenticate();
+
+    const instance = sfInstance();
+    const v = sfApiVersion();
+
+    const queryUrl = `${instance}/services/data/v${v}/query`;
+    const q = `
+      SELECT Id, Name, Email__c, Phone__c, Address__c, City__c, Postal_Code__c, ExternalId__c
+      FROM CustomerCustom__c
+      WHERE Email__c = '${escapeSoql(email)}'
+      LIMIT 1
+    `;
+
+    const qr = await sf.client.get(queryUrl, { params: { q } });
+    const rec = qr.data.records?.[0];
+
+    if (!rec) {
+      return res.json({ success: true, exists: false, customer: null });
+    }
+
+    return res.json({
+      success: true,
+      exists: true,
+      customer: {
+        sfId: rec.Id,
+        externalId: rec.ExternalId__c,
+        name: rec.Name ?? '',
+        email: rec.Email__c ?? email,
+        phone: rec.Phone__c ?? '',
+        address: rec.Address__c ?? '',
+        city: rec.City__c ?? '',
+        postalCode: rec.Postal_Code__c ?? '',
+      },
+    });
+  } catch (e: any) {
+    const status = e?.response?.status ?? 500;
+    const data = e?.response?.data ?? e?.message;
+
+    logger.error('API: Failed to lookup customer by email', { status, data });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch customer',
+      details: data,
     });
   }
 });
@@ -279,9 +435,23 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
       });
     }
 
-    if (!customerInfo || !customerInfo.name || !customerInfo.email) {
+    const tokenEmail = getAuthEmail(req);
+    const emailFromBody = normalizeEmail(customerInfo?.email);
+    const useTokenFlow = !!tokenEmail;
+
+    if (!useTokenFlow) {
+      if (!customerInfo || !customerInfo.name || !customerInfo.email) {
+        return res.status(400).json({
+          error: 'Missing required customer info: name, email (or provide Authorization Bearer token)',
+        });
+      }
+    }
+
+    const resolvedEmail = useTokenFlow ? normalizeEmail(tokenEmail as string) : emailFromBody;
+
+    if (!resolvedEmail) {
       return res.status(400).json({
-        error: 'Missing required customer info: name, email',
+        error: 'Could not resolve customer email (token or customerInfo.email required)',
       });
     }
 
@@ -350,29 +520,29 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
     }
 
     const orderId = `ORD-${Date.now()}-${uuidv4().substring(0, 8)}`;
-    const emailKey = String(customerInfo.email).trim().toLowerCase();
-    const customerId = customerInfo.customerId || `EMAIL:${emailKey}`;
+    const customerId = customerInfo?.customerId || `EMAIL:${resolvedEmail}`;
+    const customerName = useTokenFlow ? (customerInfo?.name || 'Customer') : customerInfo.name;
 
-    if (!customerInfo.customerId) {
+    if (!customerInfo?.customerId) {
       const customerMessage: RabbitMQMessage = {
         messageId: uuidv4(),
         event: EventType.CREATE_CUSTOMER,
         payload: {
           customer: {
             id: customerId,
-            name: customerInfo.name,
-            email: customerInfo.email,
-            phone: customerInfo.phone,
-            address: customerInfo.address,
-            city: customerInfo.city,
-            postalCode: customerInfo.postalCode,
+            name: customerName,
+            email: resolvedEmail,
+            phone: customerInfo?.phone,
+            address: customerInfo?.address,
+            city: customerInfo?.city,
+            postalCode: customerInfo?.postalCode,
           },
         },
         timestamp: new Date().toISOString(),
       };
 
       await producer.sendMessage(customerMessage);
-      logger.info('API: Customer creation message sent', { customerId });
+      logger.info('API: Customer creation message sent', { customerId, email: resolvedEmail, tokenFlow: useTokenFlow });
     }
 
     const orderMessage: RabbitMQMessage = {
@@ -381,12 +551,12 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
       payload: {
         customer: {
           id: customerId,
-          name: customerInfo.name,
-          email: customerInfo.email,
-          phone: customerInfo.phone,
-          address: customerInfo.address,
-          city: customerInfo.city,
-          postalCode: customerInfo.postalCode,
+          name: customerName,
+          email: resolvedEmail,
+          phone: customerInfo?.phone,
+          address: customerInfo?.address,
+          city: customerInfo?.city,
+          postalCode: customerInfo?.postalCode,
         },
         order: {
           id: orderId,
@@ -412,7 +582,12 @@ app.post('/api/orders/candy', async (req: Request, res: Response) => {
           totalAmount: Math.round(totalAmount * 100) / 100,
           currency: 'EUR',
           items: orderItems,
-          customerInfo,
+          customer: {
+            id: customerId,
+            name: customerName,
+            email: resolvedEmail,
+          },
+          usedToken: useTokenFlow,
         },
       });
     }
