@@ -19,3 +19,9 @@ coverage/
 *~
 
 
+
+# env files
+.env
+.env.*
+*.env
+.env.save*
