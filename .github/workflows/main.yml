@@ -1,0 +1,21 @@
+name: CI + Secret Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: SecureStack Secrets Analysis
+        uses: SecureStackCo/actions-secrets@v0.1.3
+        with:
+          securestack_api_key: ${{ secrets.SECURESTACK_API_KEY }}
+          securestack_app_id: ${{ secrets.SECURESTACK_APP_ID }}
+          severity: medium
