@@ -1,7 +1,9 @@
-import * as amqp from 'amqplib';
-import { RabbitMQMessage } from '../types/message';
-import { config } from '../config';
-import logger from '../utils/logger';
+import * as amqp from "amqplib";
+import { RabbitMQMessage } from "../types/message";
+import { config } from "../config";
+import logger from "../utils/logger";
+import { validateRabbitMQMessage } from "../security/message-validator";
+import { signRawMessage } from "../security/message-signing";
 
 export class RabbitMQProducer {
   private connection: amqp.Connection | null = null;
@@ -9,75 +11,69 @@ export class RabbitMQProducer {
 
   async connect(): Promise<void> {
     try {
-      logger.info('Connecting to RabbitMQ', { url: config.rabbitmq.url });
+      logger.info("Connecting to RabbitMQ", { url: config.rabbitmq.url });
+
       this.connection = (await amqp.connect(config.rabbitmq.url) as unknown) as amqp.Connection;
-      if (!this.connection) {
-        throw new Error('Failed to establish RabbitMQ connection');
-      }
+      if (!this.connection) throw new Error("Failed to establish RabbitMQ connection");
+
       // @ts-ignore
       this.channel = await this.connection.createChannel();
+      if (!this.channel) throw new Error("Failed to create RabbitMQ channel");
 
-      if (!this.channel) {
-        throw new Error('Failed to create RabbitMQ channel');
-      }
+      await this.channel.assertQueue(config.rabbitmq.queue, { durable: true });
+      await this.channel.assertQueue(config.rabbitmq.dlq, { durable: true });
 
-      await this.channel.assertQueue(config.rabbitmq.queue, {
-        durable: true,
-      });
-
-      await this.channel.assertQueue(config.rabbitmq.dlq, {
-        durable: true,
-      });
-
-      logger.info('Connected to RabbitMQ successfully');
+      logger.info("Connected to RabbitMQ successfully");
     } catch (error) {
-      logger.error('Failed to connect to RabbitMQ', { error });
+      logger.error("Failed to connect to RabbitMQ", { error });
       throw error;
     }
   }
 
   async sendMessage(message: RabbitMQMessage): Promise<boolean> {
-    if (!this.channel) {
-      throw new Error('Not connected to RabbitMQ');
+    if (!this.channel) throw new Error("Not connected to RabbitMQ");
+
+    const validation = validateRabbitMQMessage(message);
+    if (!validation.ok) {
+      logger.warn("Producer: Message blocked by validator", {
+        errors: validation.errors,
+        messageId: (message as any)?.messageId,
+      });
+      throw new Error("Message validation failed: " + validation.errors.join(" | "));
     }
 
     try {
-      const messageBuffer = Buffer.from(JSON.stringify(message));
-      const sent = this.channel.sendToQueue(
-        config.rabbitmq.queue,
-        messageBuffer,
-        {
-          persistent: true,
-          messageId: message.messageId,
-        }
-      );
+      const raw = JSON.stringify(message);
+      const signature = signRawMessage(raw);
+
+      const messageBuffer = Buffer.from(raw, "utf8");
+      const sent = this.channel.sendToQueue(config.rabbitmq.queue, messageBuffer, {
+        persistent: true,
+        messageId: message.messageId,
+        headers: {
+          "x-signature": signature,
+        },
+      });
 
       if (sent) {
-        logger.info('Message sent to queue', {
+        logger.info("Message sent to queue", {
           messageId: message.messageId,
           event: message.event,
           queue: config.rabbitmq.queue,
         });
         return true;
-      } else {
-        logger.warn('Message not sent (queue full?)', {
-          messageId: message.messageId,
-        });
-        return false;
       }
+
+      logger.warn("Message not sent (queue full?)", { messageId: message.messageId });
+      return false;
     } catch (error) {
-      logger.error('Failed to send message', {
-        error,
-        messageId: message.messageId,
-      });
+      logger.error("Failed to send message", { error, messageId: message.messageId });
       throw error;
     }
   }
 
   async getQueueInfo(): Promise<{ queue: string; messageCount: number }> {
-    if (!this.channel) {
-      throw new Error('Not connected to RabbitMQ');
-    }
+    if (!this.channel) throw new Error("Not connected to RabbitMQ");
 
     const queueInfo = await this.channel.checkQueue(config.rabbitmq.queue);
     return {
@@ -88,16 +84,14 @@ export class RabbitMQProducer {
 
   async close(): Promise<void> {
     try {
-      if (this.channel) {
-        await this.channel.close();
-      }
+      if (this.channel) await this.channel.close();
       if (this.connection) {
         // @ts-ignore
         await this.connection.close();
       }
-      logger.info('RabbitMQ connection closed');
+      logger.info("RabbitMQ connection closed");
     } catch (error) {
-      logger.error('Error closing RabbitMQ connection', { error });
+      logger.error("Error closing RabbitMQ connection", { error });
     }
   }
 }

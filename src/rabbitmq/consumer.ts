@@ -5,6 +5,8 @@ import { config } from "../config";
 import logger from "../utils/logger";
 import { isMessageProcessed, markMessageProcessed } from "../utils/idempotency";
 import { SalesforceRefreshService } from "../services/salesforce-refresh";
+import { validateRabbitMQMessage } from "../security/message-validator";
+import { verifyRawMessage, signRawMessage } from "../security/message-signing";
 
 type OrderItem = {
   productId: string;
@@ -65,11 +67,32 @@ export class RabbitMQConsumer {
   private async processMessage(msg: ConsumeMessage): Promise<void> {
     if (!this.channel) return;
 
+    const raw = msg.content.toString("utf8");
+    const signature = msg.properties?.headers?.["x-signature"];
+
+    if (!verifyRawMessage(raw, signature)) {
+      logger.error("Consumer: Invalid or missing signature - message rejected", {
+        messageId: msg.properties?.messageId,
+      });
+      this.channel.nack(msg, false, false);
+      return;
+    }
+
     let message: RabbitMQMessage;
     try {
-      message = JSON.parse(msg.content.toString());
+      message = JSON.parse(raw);
     } catch (error) {
       logger.error("Consumer: Failed to parse message", { error });
+      this.channel.nack(msg, false, false);
+      return;
+    }
+
+    const validation = validateRabbitMQMessage(message);
+    if (!validation.ok) {
+      logger.error("Consumer: Message failed schema validation - rejected", {
+        messageId: (message as any)?.messageId,
+        errors: validation.errors,
+      });
       this.channel.nack(msg, false, false);
       return;
     }
@@ -117,10 +140,15 @@ export class RabbitMQConsumer {
 
         message.retryCount = retryCount;
 
-        const retryBuffer = Buffer.from(JSON.stringify(message));
+        const retryRaw = JSON.stringify(message);
+        const retryBuffer = Buffer.from(retryRaw, "utf8");
+
         this.channel.sendToQueue(config.rabbitmq.queue, retryBuffer, {
           persistent: true,
           messageId: message.messageId,
+          headers: {
+            "x-signature": signRawMessage(retryRaw),
+          },
         });
 
         this.channel.ack(msg);
@@ -518,8 +546,15 @@ export class RabbitMQConsumer {
       dlqTimestamp: new Date().toISOString(),
     };
 
-    const dlqBuffer = Buffer.from(JSON.stringify(dlqMessage));
-    this.channel.sendToQueue(config.rabbitmq.dlq, dlqBuffer, { persistent: true });
+    const dlqRaw = JSON.stringify(dlqMessage);
+    const dlqBuffer = Buffer.from(dlqRaw, "utf8");
+
+    this.channel.sendToQueue(config.rabbitmq.dlq, dlqBuffer, {
+      persistent: true,
+      headers: {
+        "x-signature": signRawMessage(dlqRaw),
+      },
+    });
 
     logger.error("Consumer: Message sent to DLQ", {
       messageId: message.messageId,
