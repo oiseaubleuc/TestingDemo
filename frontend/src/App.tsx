@@ -128,7 +128,11 @@ function App() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [basket, setBasket] = useState<BasketItem[]>(() => loadBasketFromSession());
+
+  // ✅ 2-step checkout: eerst email popup, daarna checkout form popup
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const [token, setToken] = useState<string | null>(() => getStoredToken());
@@ -257,7 +261,7 @@ function App() {
     const email = normalizeEmail(loginEmail);
     if (!email || !email.includes('@')) {
       showMessage('error', 'Geef een geldig e-mailadres.');
-      return;
+      return false;
     }
 
     setLoading(true);
@@ -290,8 +294,11 @@ function App() {
         });
         showMessage('success', 'Nieuwe klant. Vul je gegevens éénmalig in.');
       }
+
+      return true;
     } catch (e: any) {
       showMessage('error', e?.message || 'Doorgaan mislukt');
+      return false;
     } finally {
       setLoading(false);
     }
@@ -303,6 +310,15 @@ function App() {
     setToken(null);
     setAuthEmail('');
     showMessage('success', 'Uitgelogd.');
+  };
+
+  // ✅ Email-step: na "Doorgaan" open je checkout
+  const proceedFromEmail = async () => {
+    const ok = await handleLogin();
+    if (ok) {
+      setShowEmailPrompt(false);
+      setShowCheckout(true);
+    }
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -443,7 +459,15 @@ function App() {
                   <span>Totaal prijs:</span>
                   <strong>€{getTotalPrice().toFixed(2)}</strong>
                 </div>
-                <button className="checkout-btn" onClick={() => setShowCheckout(true)}>
+
+                {/* ✅ Afrekenen -> eerst email popup */}
+                <button
+                  className="checkout-btn"
+                  onClick={() => {
+                    setShowCheckout(false);
+                    setShowEmailPrompt(true);
+                  }}
+                >
                   Afrekenen
                 </button>
               </div>
@@ -502,54 +526,63 @@ function App() {
         </main>
       </div>
 
+      {/* ✅ POPUP 1: alleen email + doorgaan */}
+      {showEmailPrompt && (
+        <div className="checkout-modal">
+          <div className="checkout-content">
+            <h2>Verdergaan met e-mail</h2>
+
+            <div className="form-group">
+              <label>E-mail</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="jij@example.com"
+                required
+              />
+            </div>
+
+            <div style={{ fontSize: 12, color: '#777', marginTop: 8, marginBottom: 14 }}>
+              {token ? (
+                <>
+                  Ingelogd als <strong>{authEmail}</strong>
+                </>
+              ) : (
+                'We vullen je gegevens automatisch in als we je kennen. Anders vul je ze éénmalig in.'
+              )}
+            </div>
+
+            <div className="checkout-actions">
+              <button type="button" className="cancel-btn" onClick={() => setShowEmailPrompt(false)} disabled={loading}>
+                Annuleren
+              </button>
+
+              {token && (
+                <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={handleLogout}
+                  disabled={loading}
+                  style={{ opacity: 0.95 }}
+                >
+                  Uitloggen
+                </button>
+              )}
+
+              <button type="button" className="submit-order-btn" onClick={proceedFromEmail} disabled={loading}>
+                {loading ? '...' : 'Doorgaan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ POPUP 2: checkout formulier (zonder login-block) */}
       {showCheckout && (
         <div className="checkout-modal">
           <div className="checkout-content">
             <h2>Afrekenen</h2>
-
-            <div
-              style={{
-                padding: '12px',
-                border: '1px solid #e5e7eb',
-                borderRadius: 12,
-                marginBottom: 16,
-                background: '#fafafa',
-              }}
-            >
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
-                E-mail (voor automatisch invullen)
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="jij@example.com"
-                  style={{ flex: 1 }}
-                  required
-                />
-                <button type="button" onClick={handleLogin} disabled={loading}>
-                  {loading ? '...' : 'Doorgaan'}
-                </button>
-
-                {token && (
-                  <button type="button" onClick={handleLogout} disabled={loading} style={{ opacity: 0.9 }}>
-                    Uitloggen
-                  </button>
-                )}
-              </div>
-
-              <div style={{ fontSize: 12, color: '#777', marginTop: 8 }}>
-                {token ? (
-                  <>
-                    Ingelogd als <strong>{authEmail}</strong>
-                  </>
-                ) : (
-                  'We vullen je gegevens automatisch in als we je kennen. Anders vul je ze éénmalig in.'
-                )}
-              </div>
-            </div>
 
             <form onSubmit={handleCheckout}>
               <div className="form-group">
@@ -613,7 +646,7 @@ function App() {
               </div>
 
               <div className="checkout-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowCheckout(false)}>
+                <button type="button" className="cancel-btn" onClick={() => setShowCheckout(false)} disabled={loading}>
                   Annuleren
                 </button>
                 <button type="submit" className="submit-order-btn" disabled={loading}>
