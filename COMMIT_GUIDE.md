@@ -72,7 +72,7 @@ Stappen:
 1. Lint (TypeScript, ESLint)
 2. Test (Jest met RabbitMQ)
 3. Build (Backend + Frontend)
-4. Docker Build
+4. Build
 
 ### CD Pipeline
 De CD pipeline draait bij:
@@ -82,7 +82,7 @@ De CD pipeline draait bij:
 
 Stappen:
 1. Build applicatie
-2. Build Docker image
+2. Build application
 3. Deploy naar staging/production
 
 ## Workflow

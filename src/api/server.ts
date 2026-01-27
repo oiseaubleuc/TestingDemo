@@ -71,6 +71,9 @@ app.get('/', (req: Request, res: Response) => {
       deleteCustomer: 'DELETE /api/customers/:id',
       createOrder: 'POST /api/orders',
       createCandyOrder: 'POST /api/orders/candy',
+      createCandy: 'POST /api/candies',
+      updateCandy: 'PUT /api/candies/:id',
+      deleteCandy: 'DELETE /api/candies/:id',
     },
   });
 });
@@ -99,6 +102,108 @@ app.get('/api/candies', (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error('Failed to get candies', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create new candy/product
+app.post('/api/candies', orderLimiter, async (req: Request, res: Response) => {
+  try {
+    const { name, description, category, pricePer100g, image } = req.body;
+
+    if (!name || !category || pricePer100g === undefined) {
+      return res.status(400).json({
+        error: 'Missing required fields: name, category, pricePer100g',
+      });
+    }
+
+    if (pricePer100g < 0) {
+      return res.status(400).json({
+        error: 'Price must be a positive number',
+      });
+    }
+
+    const newCandy = {
+      id: `CANDY-${Date.now()}-${uuidv4().substring(0, 8)}`,
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category.trim(),
+      pricePer100g: parseFloat(pricePer100g),
+      image: image?.trim() || undefined,
+    };
+
+    CANDIES.push(newCandy);
+
+    logger.info('API: Candy created', { candyId: newCandy.id, name: newCandy.name });
+    res.status(201).json({
+      success: true,
+      message: 'Candy created successfully',
+      data: { candy: newCandy },
+    });
+  } catch (error: any) {
+    logger.error('API: Failed to create candy', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update candy/product
+app.put('/api/candies/:id', orderLimiter, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, category, pricePer100g, image } = req.body;
+
+    const candyIndex = CANDIES.findIndex(c => c.id === id);
+    if (candyIndex === -1) {
+      return res.status(404).json({
+        error: 'Candy not found',
+      });
+    }
+
+    const updatedCandy = {
+      ...CANDIES[candyIndex],
+      ...(name && { name: name.trim() }),
+      ...(description !== undefined && { description: description.trim() }),
+      ...(category && { category: category.trim() }),
+      ...(pricePer100g !== undefined && { pricePer100g: parseFloat(pricePer100g) }),
+      ...(image !== undefined && { image: image?.trim() || undefined }),
+    };
+
+    CANDIES[candyIndex] = updatedCandy;
+
+    logger.info('API: Candy updated', { candyId: id, name: updatedCandy.name });
+    res.json({
+      success: true,
+      message: 'Candy updated successfully',
+      data: { candy: updatedCandy },
+    });
+  } catch (error: any) {
+    logger.error('API: Failed to update candy', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete candy/product
+app.delete('/api/candies/:id', orderLimiter, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const candyIndex = CANDIES.findIndex(c => c.id === id);
+    if (candyIndex === -1) {
+      return res.status(404).json({
+        error: 'Candy not found',
+      });
+    }
+
+    const deletedCandy = CANDIES.splice(candyIndex, 1)[0];
+
+    logger.info('API: Candy deleted', { candyId: id, name: deletedCandy.name });
+    res.json({
+      success: true,
+      message: 'Candy deleted successfully',
+      data: { candy: deletedCandy },
+    });
+  } catch (error: any) {
+    logger.error('API: Failed to delete candy', { error: error.message });
     res.status(500).json({ error: error.message });
   }
 });

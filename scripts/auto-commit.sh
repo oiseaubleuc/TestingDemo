@@ -33,8 +33,6 @@ generate_commit_msg() {
     echo "Update dependencies"
   elif echo "$changed_files" | grep -q "README\|\.md"; then
     echo "Update documentation"
-  elif echo "$changed_files" | grep -q "Dockerfile\|docker-compose"; then
-    echo "Update Docker config"
   else
     echo "Update project files"
   fi

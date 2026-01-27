@@ -99,6 +99,88 @@ class ApiClient {
     }
     return response.json();
   }
+
+  async getCustomers() {
+    const response = await fetch(`${API_BASE_URL}/api/customers`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch customers');
+    }
+    return response.json();
+  }
+
+  async updateCustomer(id, customer) {
+    const response = await fetch(`${API_BASE_URL}/api/customers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(customer),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update customer');
+    }
+    return response.json();
+  }
+
+  async deleteCustomer(id) {
+    const response = await fetch(`${API_BASE_URL}/api/customers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete customer');
+    }
+    return response.json();
+  }
+
+  async getOrders() {
+    // Orders are typically stored locally after creation
+    // This could be extended to fetch from API if endpoint exists
+    return { orders: [] };
+  }
+
+  async createCandy(candy) {
+    const response = await fetch(`${API_BASE_URL}/api/candies`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(candy),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create candy');
+    }
+    return response.json();
+  }
+
+  async updateCandy(id, candy) {
+    const response = await fetch(`${API_BASE_URL}/api/candies/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(candy),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update candy');
+    }
+    return response.json();
+  }
+
+  async deleteCandy(id) {
+    const response = await fetch(`${API_BASE_URL}/api/candies/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete candy');
+    }
+    return response.json();
+  }
 }
 
 export const apiClient = new ApiClient();

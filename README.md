@@ -116,35 +116,6 @@ Dit sluit aan bij de richtlijn:
 
 ---
 
-## 8. Docker & Containerisatie
-
-Het project is volledig gecontaineriseerd met Docker en Docker Compose.
-
-### Quick Start
-
-```bash
-# 1. Kopieer environment file
-cp docker-compose.env.example .env
-
-# 2. Vul .env in met je credentials
-
-# 3. Start alles
-docker-compose up -d
-
-# 4. Test
-curl http://localhost:3000/health
-curl http://localhost:5173
-```
-
-### Services
-
-| Service | Port | Beschrijving |
-|---------|------|--------------|
-| `app` | 3000, 5173 | All-in-one (API + Frontend + Consumer) |
-| `rabbitmq` | 5672, 15672 | RabbitMQ server + Management UI |
-
----
-
 ## 9. CI/CD Pipeline
 
 Het project heeft CI/CD pipelines geconfigureerd in `.github/workflows/`.
@@ -155,7 +126,7 @@ Het project heeft CI/CD pipelines geconfigureerd in `.github/workflows/`.
 1. **Lint** - TypeScript, ESLint checks
 2. **Test** - Jest tests met RabbitMQ
 3. **Build** - Backend + Frontend build
-4. **Docker Build** - Docker image build
+4. **Build** - Application build
 
 **Triggers:**
 - Push naar `main` branch
@@ -166,7 +137,7 @@ Het project heeft CI/CD pipelines geconfigureerd in `.github/workflows/`.
 
 **Pipeline Stages:**
 1. **Build** - Application build
-2. **Docker Build** - Docker image build
+2. **Build** - Application build
 3. **Deploy** - Deployment naar staging/production
 
 **Triggers:**
@@ -216,9 +187,6 @@ Zie `COMMIT_GUIDE.md` voor meer details.
 npm install
 cd frontend && npm install && cd ..
 
-# Start RabbitMQ
-docker-compose up -d rabbitmq
-
 # Start API
 npm run start:api
 
@@ -243,7 +211,6 @@ Dit Proof of Concept toont aan dat:
 - RabbitMQ correct is opgezet en functioneert
 - Asynchrone communicatie betrouwbaar verloopt
 - Het systeem robuust omgaat met externe API-fouten
-- Volledige containerisatie met Docker
 - CI pipeline voor geautomatiseerde tests
 
 De basis voor een productieklare integratie is gelegd.
